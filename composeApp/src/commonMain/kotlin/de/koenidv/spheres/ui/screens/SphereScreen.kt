@@ -180,7 +180,7 @@ fun SphereScreen(
             ) {
                 PixelIconButton(
                     icon = IconName.BACK,
-                    onClick = { onNavigate("/spheres") }
+                    onClick = { onNavigate("..") }
                 )
                 Box(
                     modifier = Modifier

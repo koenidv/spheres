@@ -44,3 +44,6 @@ expect fun rememberContactPickerLauncher(onPicked: (List<PickedContact>) -> Unit
 
 @Composable
 expect fun StatusBarEffect(colorHex: Long, dimmed: Boolean)
+
+@Composable
+expect fun PlatformBackHandler(enabled: Boolean = true, onBack: () -> Unit)

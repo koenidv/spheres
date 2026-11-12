@@ -378,3 +378,8 @@ actual fun StatusBarEffect(colorHex: Long, dimmed: Boolean) {
         }
     }
 }
+
+@Composable
+actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
+    androidx.activity.compose.BackHandler(enabled = enabled, onBack = onBack)
+}

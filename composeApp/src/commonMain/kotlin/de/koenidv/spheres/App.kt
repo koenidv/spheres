@@ -1,6 +1,7 @@
 package de.koenidv.spheres
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -16,6 +17,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,14 +37,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,6 +60,7 @@ import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.DueStatus
 import de.koenidv.spheres.domain.dueInfo
 import de.koenidv.spheres.domain.entriesByPerson
+import de.koenidv.spheres.platform.PlatformBackHandler
 import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.ui.components.BottomNav
 import de.koenidv.spheres.ui.components.BottomNavTab
@@ -69,6 +80,7 @@ import de.koenidv.spheres.ui.sheets.SheetHost
 import de.koenidv.spheres.ui.theme.PixelFontFamily
 import de.koenidv.spheres.ui.theme.SpheresTheme
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private val TABS = listOf("/", "/due", "/spheres", "/settings")
 
@@ -251,30 +263,44 @@ private fun Skeleton(location: String) {
 @Composable
 private fun Shell() {
     val state by SpheresStore.state.collectAsState()
+    val density = LocalDensity.current
     var currentPath by remember { mutableStateOf("/") }
     val backStack = remember { mutableStateListOf("/") }
+    var lastNavDir by remember { mutableStateOf(NavDir(NavKind.TAB, 1)) }
+
+    val pop: () -> Unit = {
+        lastNavDir = NavDir(NavKind.POP, -1)
+        if (backStack.size > 1) {
+            backStack.removeAt(backStack.lastIndex)
+            currentPath = backStack.last()
+        } else {
+            currentPath = "/"
+        }
+    }
 
     val navigate: (String) -> Unit = { target ->
         if (target == "..") {
-            if (backStack.size > 1) {
-                backStack.removeAt(backStack.lastIndex)
-                currentPath = backStack.last()
-            } else {
-                currentPath = "/"
-            }
+            pop()
         } else if (target in TABS) {
-            if (backStack.size > 1 && depth(currentPath) > 0) {
-                backStack.removeAt(backStack.lastIndex)
-                currentPath = backStack.last()
+            if (depth(currentPath) > 0) {
+                lastNavDir = NavDir(NavKind.POP, -1)
             } else {
-                backStack.clear()
-                backStack.add(target)
-                currentPath = target
+                lastNavDir = navDirection(currentPath, target)
             }
+            backStack.clear()
+            backStack.add(target)
+            currentPath = target
         } else {
+            lastNavDir = NavDir(NavKind.PUSH, 1)
             backStack.add(target)
             currentPath = target
         }
+    }
+
+    PlatformBackHandler(
+        enabled = state.sheet == null && (backStack.size > 1 || currentPath != "/")
+    ) {
+        if (backStack.size > 1) pop() else navigate("/")
     }
 
     val selectedTab = when {
@@ -308,43 +334,59 @@ private fun Shell() {
                 AnimatedContent(
                     targetState = currentPath,
                     transitionSpec = {
-                        val dir = navDirection(initialState, targetState)
-                        val springSpec = spring<IntOffset>(
-                            stiffness = Spring.StiffnessMediumLow,
-                            dampingRatio = Spring.DampingRatioNoBouncy
-                        )
+                        val dir = lastNavDir
+                        val pushPopSpringInt = spring<IntOffset>(stiffness = 520f, dampingRatio = 0.96f)
+                        val pushPopSpringFloat = spring<Float>(stiffness = 520f, dampingRatio = 0.96f)
                         when (dir.kind) {
                             NavKind.PUSH -> {
-                                (slideInHorizontally(
-                                    initialOffsetX = { fullWidth -> fullWidth },
-                                    animationSpec = springSpec
-                                ) + fadeIn(tween(180))).togetherWith(
-                                    slideOutHorizontally(
-                                        targetOffsetX = { fullWidth -> -(fullWidth * 0.22f).toInt() },
-                                        animationSpec = springSpec
-                                    ) + fadeOut(tween(140))
-                                )
+                                (
+                                    slideInHorizontally(
+                                        initialOffsetX = { fullWidth -> fullWidth },
+                                        animationSpec = pushPopSpringInt
+                                    ) togetherWith (
+                                        slideOutHorizontally(
+                                            targetOffsetX = { fullWidth -> -(fullWidth * 0.25f).roundToInt() },
+                                            animationSpec = pushPopSpringInt
+                                        ) + fadeOut(
+                                            targetAlpha = 0.75f,
+                                            animationSpec = pushPopSpringFloat
+                                        )
+                                    )
+                                ).apply {
+                                    targetContentZIndex = 1f
+                                }
                             }
                             NavKind.POP -> {
-                                (slideInHorizontally(
-                                    initialOffsetX = { fullWidth -> -(fullWidth * 0.22f).toInt() },
-                                    animationSpec = springSpec
-                                ) + fadeIn(tween(180))).togetherWith(
-                                    slideOutHorizontally(
+                                (
+                                    (
+                                        slideInHorizontally(
+                                            initialOffsetX = { fullWidth -> -(fullWidth * 0.25f).roundToInt() },
+                                            animationSpec = pushPopSpringInt
+                                        ) + fadeIn(
+                                            initialAlpha = 0.75f,
+                                            animationSpec = pushPopSpringFloat
+                                        )
+                                    ) togetherWith slideOutHorizontally(
                                         targetOffsetX = { fullWidth -> fullWidth },
-                                        animationSpec = springSpec
-                                    ) + fadeOut(tween(140))
-                                )
+                                        animationSpec = pushPopSpringInt
+                                    )
+                                ).apply {
+                                    targetContentZIndex = -1f
+                                }
                             }
                             NavKind.TAB -> {
-                                (slideInHorizontally(
-                                    initialOffsetX = { fullWidth -> (dir.sign * (fullWidth * 0.15f)).toInt() },
-                                    animationSpec = springSpec
-                                ) + fadeIn(tween(180))).togetherWith(
+                                val tabSpring = spring<IntOffset>(stiffness = 560f, dampingRatio = 0.95f)
+                                val offsetPx = with(density) { (36.dp * dir.sign).roundToPx() }
+                                (
+                                    slideInHorizontally(
+                                        initialOffsetX = { offsetPx },
+                                        animationSpec = tabSpring
+                                    ) + fadeIn(tween(160))
+                                ) togetherWith (
                                     slideOutHorizontally(
-                                        targetOffsetX = { fullWidth -> (-dir.sign * (fullWidth * 0.15f)).toInt() },
-                                        animationSpec = springSpec
-                                    ) + fadeOut(tween(140))
+                                        targetOffsetX = { -offsetPx },
+                                        animationSpec = tabSpring
+                                    ) + fadeOut(tween(120))
                                 )
                             }
                         }
@@ -352,10 +394,91 @@ private fun Shell() {
                     modifier = Modifier.fillMaxSize()
                 ) { loc ->
                     val bottomPadding = if (loc == "/") 0.dp else 96.dp
+                    val isDetail = depth(loc) > 0
+
+                    val swipeBackOffset = remember(loc) { Animatable(0f) }
+                    var currentSwipeOffset by remember(loc) { mutableFloatStateOf(0f) }
+                    var screenWidthPx by remember(loc) { mutableFloatStateOf(0f) }
+                    val scope = rememberCoroutineScope()
+                    val viewConfig = LocalViewConfiguration.current
+
+                    val swipeModifier = if (isDetail) {
+                        Modifier
+                            .onSizeChanged { screenWidthPx = it.width.toFloat() }
+                            .offset { IntOffset(swipeBackOffset.value.roundToInt(), 0) }
+                            .pointerInput(loc) {
+                                val edgeThresholdPx = 28.dp.toPx()
+                                val flingThresholdPx = 600.dp.toPx()
+                                val velocityTracker = VelocityTracker()
+                                val touchSlop = viewConfig.touchSlop
+
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    if (down.position.x <= edgeThresholdPx) {
+                                        velocityTracker.resetTracking()
+                                        velocityTracker.addPosition(down.uptimeMillis, down.position)
+                                        var isHorizontalDrag: Boolean? = null
+                                        var totalDx = 0f
+                                        var totalDy = 0f
+
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                            if (!change.pressed) {
+                                                if (isHorizontalDrag == true) {
+                                                    val velocityX = velocityTracker.calculateVelocity().x
+                                                    val dismissThreshold = if (screenWidthPx > 0f) screenWidthPx * 0.30f else 300f
+                                                    if (currentSwipeOffset > dismissThreshold || velocityX > flingThresholdPx) {
+                                                        pop()
+                                                    } else {
+                                                        scope.launch {
+                                                            swipeBackOffset.animateTo(
+                                                                targetValue = 0f,
+                                                                animationSpec = spring(stiffness = 550f, dampingRatio = 0.9f),
+                                                                initialVelocity = velocityX
+                                                            )
+                                                            currentSwipeOffset = 0f
+                                                        }
+                                                    }
+                                                }
+                                                break
+                                            }
+
+                                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                            val dx = change.position.x - change.previousPosition.x
+                                            val dy = change.position.y - change.previousPosition.y
+
+                                            if (isHorizontalDrag == null) {
+                                                totalDx += dx
+                                                totalDy += dy
+                                                if (totalDx > touchSlop && kotlin.math.abs(totalDx) > kotlin.math.abs(totalDy)) {
+                                                    isHorizontalDrag = true
+                                                    change.consume()
+                                                } else if (kotlin.math.abs(totalDy) > touchSlop || totalDx < -touchSlop) {
+                                                    isHorizontalDrag = false
+                                                    break
+                                                }
+                                            } else if (isHorizontalDrag == true) {
+                                                change.consume()
+                                                currentSwipeOffset = (currentSwipeOffset + dx).coerceAtLeast(0f)
+                                                val target = currentSwipeOffset
+                                                scope.launch {
+                                                    swipeBackOffset.snapTo(target)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                    } else {
+                        Modifier
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(bottom = bottomPadding)
+                            .then(swipeModifier)
                     ) {
                         when {
                             loc == "/" -> RadarScreen(onNavigate = navigate)
@@ -404,6 +527,11 @@ private fun Shell() {
                         BottomNavTab.SETTINGS -> "/settings"
                     }
                     if (currentPath != route) {
+                        lastNavDir = if (depth(currentPath) > 0) {
+                            NavDir(NavKind.POP, -1)
+                        } else {
+                            navDirection(currentPath, route)
+                        }
                         backStack.clear()
                         backStack.add(route)
                         currentPath = route

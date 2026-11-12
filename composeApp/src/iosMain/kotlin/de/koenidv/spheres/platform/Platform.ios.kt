@@ -276,6 +276,9 @@ actual fun StatusBarEffect(colorHex: Long, dimmed: Boolean) {
     }
 }
 
+@Composable
+actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {}
+
 private fun getRootViewController(): UIViewController? {
     val app = UIApplication.sharedApplication
     val window = app.keyWindow ?: (app.windows.firstOrNull() as? UIWindow)

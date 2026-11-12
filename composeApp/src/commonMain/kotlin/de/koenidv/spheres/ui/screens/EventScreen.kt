@@ -165,7 +165,7 @@ fun EventScreen(
             ) {
                 PixelIconButton(
                     icon = IconName.BACK,
-                    onClick = { onNavigate("/spheres") }
+                    onClick = { onNavigate("..") }
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Row(

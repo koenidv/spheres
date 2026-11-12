@@ -268,7 +268,7 @@ fun PersonScreen(
                 ) {
                     PixelIconButton(
                         icon = IconName.BACK,
-                        onClick = { onNavigate("/") }
+                        onClick = { onNavigate("..") }
                     )
                     PixelIconButton(
                         icon = IconName.EDIT,

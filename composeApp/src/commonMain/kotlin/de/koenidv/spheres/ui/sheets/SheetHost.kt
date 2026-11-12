@@ -1,9 +1,21 @@
 package de.koenidv.spheres.ui.sheets
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import de.koenidv.spheres.data.LogMode
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
@@ -16,22 +28,18 @@ fun SheetHost(
     val state by SpheresStore.state.collectAsState()
     val sheet = state.sheet
 
-    val title = when (sheet) {
-        is SheetState.AddPerson -> "New connection"
-        is SheetState.SphereEdit -> if (sheet.sphereId != null) "Edit sphere" else "New sphere"
-        is SheetState.EventEdit -> "Edit event"
-        is SheetState.PickPerson -> if (sheet.then == LogMode.NOTE) "Note about…" else "Interaction with…"
-        else -> null
+    var lastSheet by remember { mutableStateOf<SheetState?>(sheet) }
+    if (sheet != null) {
+        lastSheet = sheet
     }
+    val activeSheet = sheet ?: lastSheet
 
-    val sheetKey = when (sheet) {
-        is SheetState.Action -> "action"
-        is SheetState.AddPerson -> "addPerson-${sheet.name.orEmpty()}-${sheet.sphereId.orEmpty()}"
-        is SheetState.SphereEdit -> "sphere-${sheet.sphereId.orEmpty()}"
-        is SheetState.EventEdit -> "event-${sheet.eventId}"
-        is SheetState.PickPerson -> "pickPerson-${sheet.then}"
-        is SheetState.Log -> "log-${sheet.personId}-${sheet.mode}"
-        null -> "none"
+    val title = when (activeSheet) {
+        is SheetState.AddPerson -> "New connection"
+        is SheetState.SphereEdit -> if (activeSheet.sphereId != null) "Edit sphere" else "New sphere"
+        is SheetState.EventEdit -> "Edit event"
+        is SheetState.PickPerson -> if (activeSheet.then == LogMode.NOTE) "Note about…" else "Interaction with…"
+        else -> null
     }
 
     PixelSheet(
@@ -39,8 +47,19 @@ fun SheetHost(
         onClose = { SpheresStore.closeSheet() },
         title = title
     ) {
-        key(sheetKey) {
-            when (val current = sheet) {
+        AnimatedContent(
+            targetState = activeSheet,
+            contentKey = { it?.let { s -> s::class } },
+            transitionSpec = {
+                (fadeIn(tween(140)) togetherWith fadeOut(tween(110))).using(
+                    SizeTransform(clip = false)
+                )
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize(spring(stiffness = 500f, dampingRatio = 0.92f))
+        ) { current ->
+            when (current) {
                 is SheetState.Action -> ActionSheet(onNavigate = onNavigate)
                 is SheetState.AddPerson -> AddPersonSheet(sheet = current)
                 is SheetState.SphereEdit -> SphereSheet(sheet = current, onNavigate = onNavigate)
