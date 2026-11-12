@@ -295,6 +295,11 @@ object SpheresStore {
         }
     }
 
+    fun dismissToast() {
+        toastJob?.cancel()
+        _state.update { it.copy(toast = null) }
+    }
+
     fun addSphere(name: String, color: String, note: String = ""): String {
         val id = randomUuid()
         val sphere = Sphere(

@@ -1,6 +1,7 @@
 package de.koenidv.spheres.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -29,7 +30,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -685,15 +688,20 @@ data class ToastMessage(
 @Composable
 fun ToastHost(
     toast: ToastMessage?,
+    onDismiss: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var activeToast by remember { mutableStateOf(toast) }
+    if (toast != null) activeToast = toast
+    val currentToast = activeToast
+
     AnimatedVisibility(
         visible = toast != null,
-        enter = fadeIn() + slideInVertically { it / 2 },
-        exit = fadeOut() + slideOutVertically { it / 2 },
+        enter = fadeIn(tween(150)) + slideInVertically { it / 2 },
+        exit = fadeOut(tween(150)) + slideOutVertically { it / 2 },
         modifier = modifier
     ) {
-        if (toast != null) {
+        if (currentToast != null) {
             Row(
                 modifier = Modifier
                     .clip(PxClipShape)
@@ -703,14 +711,14 @@ fun ToastHost(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = toast.text,
+                    text = currentToast.text,
                     style = TextStyle(
                         fontFamily = PixelFontFamily(),
                         fontSize = 16.sp,
                         color = Color.White
                     )
                 )
-                if (toast.undo != null) {
+                if (currentToast.undo != null) {
                     Text(
                         text = "UNDO",
                         style = TextStyle(
@@ -720,7 +728,10 @@ fun ToastHost(
                             letterSpacing = 0.05.sp,
                             color = Color(0xFFF6B4D4)
                         ),
-                        modifier = Modifier.clickable { toast.undo.invoke() }
+                        modifier = Modifier.clickable {
+                            currentToast.undo.invoke()
+                            onDismiss()
+                        }
                     )
                 }
             }

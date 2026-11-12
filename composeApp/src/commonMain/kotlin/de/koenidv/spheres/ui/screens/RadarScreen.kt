@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -126,14 +128,16 @@ fun RadarScreen(
         intervalInfo(targetPerson?.intervalDays).color
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
     ) {
+        val minRadarHeightDp = (maxHeight.value - 160f).coerceAtLeast(360f)
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
         ) {
             ScreenHeader(
@@ -202,28 +206,23 @@ fun RadarScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                Radar(
-                    people = radarPeople,
-                    onPersonClick = { id -> onNavigate("/people/$id") },
-                    onPersonLongPress = { id, x, y, w, h ->
-                        menuTarget = PersonMenuTarget(id, x, y, w, h)
-                    },
-                    onAddClick = { intervalDays ->
-                        SpheresStore.openSheet(
-                            SheetState.AddPerson(
-                                intervalDays = intervalDays,
-                                sphereId = filterSphere?.id
-                            )
+            Radar(
+                people = radarPeople,
+                onPersonClick = { id -> onNavigate("/people/$id") },
+                onPersonLongPress = { id, x, y, w, h ->
+                    menuTarget = PersonMenuTarget(id, x, y, w, h)
+                },
+                onAddClick = { intervalDays ->
+                    SpheresStore.openSheet(
+                        SheetState.AddPerson(
+                            intervalDays = intervalDays,
+                            sphereId = filterSphere?.id
                         )
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+                    )
+                },
+                minHeightDp = minRadarHeightDp,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         PersonMenu(

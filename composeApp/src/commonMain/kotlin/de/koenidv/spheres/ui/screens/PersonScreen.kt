@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -78,7 +79,6 @@ import de.koenidv.spheres.domain.recentBirthday
 import de.koenidv.spheres.domain.relationshipQuality
 import de.koenidv.spheres.domain.relativeDays
 import de.koenidv.spheres.domain.sphereIdsViaEvents
-import de.koenidv.spheres.platform.StatusBarEffect
 import de.koenidv.spheres.platform.openExternalUrl
 import de.koenidv.spheres.platform.randomUuid
 import de.koenidv.spheres.ui.components.ButtonSize
@@ -105,7 +105,6 @@ import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Muted
 import de.koenidv.spheres.ui.theme.PixelFontFamily
 import de.koenidv.spheres.ui.theme.SansFontFamily
-import de.koenidv.spheres.ui.theme.mixColors
 import de.koenidv.spheres.ui.theme.parseHexColor
 import de.koenidv.spheres.ui.theme.tintColor
 import kotlinx.coroutines.delay
@@ -220,10 +219,6 @@ fun PersonScreen(
 
     val info = intervalInfo(person.intervalDays)
     val accentColor = parseHexColor(info.color)
-    val statusTint = mixColors(accentColor, Color.White, 0.28f)
-    val statusHex = statusTint.value.toLong()
-
-    StatusBarEffect(colorHex = statusHex, dimmed = false)
 
     val due = remember(person, entries) { dueInfo(person, entries) }
     val score = remember(person, entries) { contactScore(person, entries) }
@@ -258,6 +253,7 @@ fun PersonScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
                 .padding(bottom = 96.dp)
         ) {
             ArcHeader(accent = accentColor) {

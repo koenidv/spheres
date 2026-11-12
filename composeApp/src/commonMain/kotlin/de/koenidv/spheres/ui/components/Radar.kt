@@ -26,8 +26,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -75,7 +73,7 @@ private const val ROW_OFFSET = 36f
 private const val SPHERE_GAP = 20f
 private const val MIN_BAND = 140f
 private const val TOP_PAD = 20f
-private const val BOTTOM_PAD = 120f
+private const val BOTTOM_PAD = 140f
 private const val HIDDEN_ROW = 48f
 private const val FILL_EXTRA = 4000f
 
@@ -266,6 +264,7 @@ fun Radar(
     onPersonLongPress: (id: String, anchorX: Float, anchorY: Float, anchorWidth: Float, anchorHeight: Float) -> Unit,
     onAddClick: (intervalDays: Int) -> Unit,
     modifier: Modifier = Modifier,
+    minHeightDp: Float = 0f,
     intervals: List<RadarInterval> = DEFAULT_RADAR_INTERVALS
 ) {
     val haptic = LocalHapticFeedback.current
@@ -290,43 +289,35 @@ fun Radar(
     val hiddenIntervals = bandsWithPeople.second
 
     BoxWithConstraints(
-        modifier = modifier.fillMaxSize()
+        modifier = modifier
     ) {
         val widthDp = maxWidth.value
-        val viewportHeightDp = maxHeight.value
         val layout = remember(widthDp, shownBands) {
             if (widthDp > 0f) layoutRadar(widthDp, shownBands.map { it.second.size }) else null
         }
 
-        val minHeightDp = (layout?.height ?: 400f) + (if (hiddenIntervals.isNotEmpty()) HIDDEN_ROW else 0f)
-        val totalHeightDp = max(viewportHeightDp, minHeightDp)
+        val minContentHeightDp = (layout?.height ?: 400f) + (if (hiddenIntervals.isNotEmpty()) HIDDEN_ROW else 0f)
+        val totalHeightDp = max(minHeightDp, minContentHeightDp)
 
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .fillMaxWidth()
+                .height(totalHeightDp.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(totalHeightDp.dp)
-                    .clipToBounds()
-            ) {
-                if (layout != null) {
-                    shownBands.forEachIndexed { si, (band, _) ->
-                        val bl = layout.bands[si]
-                        val color = parseHexColor(band.colorHex)
-                        val arcPaths = remember(layout, bl.arcTop, totalHeightDp, density) {
-                            buildArcPaths(layout, bl.arcTop, totalHeightDp, density)
-                        }
+            if (layout != null) {
+                shownBands.forEachIndexed { si, (band, _) ->
+                    val bl = layout.bands[si]
+                    val color = parseHexColor(band.colorHex)
+                    val arcPaths = remember(layout, bl.arcTop, totalHeightDp, density) {
+                        buildArcPaths(layout, bl.arcTop, totalHeightDp, density)
+                    }
 
-                        Canvas(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = bl.arcTop.dp)
-                                .height((totalHeightDp - bl.arcTop).dp)
-                                .clipToBounds()
-                        ) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .offset(y = bl.arcTop.dp)
+                            .height((totalHeightDp - bl.arcTop).dp)
+                    ) {
                             drawPath(path = arcPaths.fillPath, color = tintColor(color, 20))
                             drawPath(
                                 path = arcPaths.strokePath,
@@ -567,7 +558,6 @@ fun Radar(
             }
         }
     }
-}
 
 private val SKELETON_BANDS = listOf(Color(0xFFF6F6F6), Color(0xFFF0F0F0), Color(0xFFEAEAEA))
 

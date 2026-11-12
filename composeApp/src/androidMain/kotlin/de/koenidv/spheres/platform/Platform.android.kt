@@ -28,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.app.ActivityCompat
@@ -359,21 +358,12 @@ actual fun StatusBarEffect(colorHex: Long, dimmed: Boolean) {
         SideEffect {
             val window = (view.context as? Activity)?.window ?: AndroidPlatformContext.currentActivity?.window
             window?.let { win ->
-                val baseColor = Color(colorHex)
-                val effectiveColor = if (dimmed) {
-                    Color(
-                        red = 0.757f * 0.7f + baseColor.red * 0.3f,
-                        green = 0.757f * 0.7f + baseColor.green * 0.3f,
-                        blue = 0.757f * 0.7f + baseColor.blue * 0.3f,
-                        alpha = 1f
-                    )
-                } else {
-                    baseColor
+                win.statusBarColor = android.graphics.Color.TRANSPARENT
+                win.navigationBarColor = android.graphics.Color.TRANSPARENT
+                WindowCompat.getInsetsController(win, win.decorView).apply {
+                    isAppearanceLightStatusBars = true
+                    isAppearanceLightNavigationBars = true
                 }
-                win.statusBarColor = effectiveColor.toArgb()
-                val insetsController = WindowCompat.getInsetsController(win, win.decorView)
-                val luminance = 0.299f * effectiveColor.red + 0.587f * effectiveColor.green + 0.114f * effectiveColor.blue
-                insetsController.isAppearanceLightStatusBars = luminance > 0.5f
             }
         }
     }

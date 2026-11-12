@@ -61,6 +61,7 @@ import de.koenidv.spheres.domain.DueStatus
 import de.koenidv.spheres.domain.dueInfo
 import de.koenidv.spheres.domain.entriesByPerson
 import de.koenidv.spheres.platform.PlatformBackHandler
+import de.koenidv.spheres.platform.StatusBarEffect
 import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.ui.components.BottomNav
 import de.koenidv.spheres.ui.components.BottomNavTab
@@ -103,6 +104,7 @@ private fun navDirection(from: String, to: String): NavDir {
 fun App() {
     SpheresTheme {
         val state by SpheresStore.state.collectAsState()
+        StatusBarEffect(colorHex = 0xFFFFFFFFL, dimmed = state.sheet != null)
 
         if (!state.authReady) {
             Splash()
@@ -393,7 +395,6 @@ private fun Shell() {
                     },
                     modifier = Modifier.fillMaxSize()
                 ) { loc ->
-                    val bottomPadding = if (loc == "/") 0.dp else 96.dp
                     val isDetail = depth(loc) > 0
 
                     val swipeBackOffset = remember(loc) { Animatable(0f) }
@@ -477,7 +478,6 @@ private fun Shell() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(bottom = bottomPadding)
                             .then(swipeModifier)
                     ) {
                         when {
@@ -546,10 +546,11 @@ private fun Shell() {
 
             ToastHost(
                 toast = state.toast?.let { ToastMessage(it.id.toString(), it.text, it.undo) },
+                onDismiss = { SpheresStore.dismissToast() },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(bottom = 80.dp)
+                    .padding(bottom = 96.dp, start = 16.dp, end = 16.dp)
             )
         }
     }
