@@ -81,7 +81,10 @@ fun PixelShell(
     val currentLift = if (isPressed) lift / 2f else lift
     val faceOffset = if (isPressed) lift / 2f else 0.dp
 
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier,
+        propagateMinConstraints = true
+    ) {
         if (lift > 0.dp && shadow != null) {
             Box(
                 modifier = Modifier
@@ -93,7 +96,6 @@ fun PixelShell(
         }
         Box(
             modifier = Modifier
-                .matchParentSize()
                 .padding(bottom = lift)
                 .offset(y = faceOffset)
                 .clip(PxClipShape)
