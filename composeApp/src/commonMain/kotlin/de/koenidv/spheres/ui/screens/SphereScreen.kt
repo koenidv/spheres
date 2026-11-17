@@ -64,13 +64,14 @@ import de.koenidv.spheres.ui.components.Chip
 import de.koenidv.spheres.ui.components.EmptyState
 import de.koenidv.spheres.ui.components.HealthRing
 import de.koenidv.spheres.ui.components.IconName
-import de.koenidv.spheres.ui.components.PixelAvatar
+import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelIcon
 import de.koenidv.spheres.ui.components.PixelIconButton
 import de.koenidv.spheres.ui.components.PixelPanel
 import de.koenidv.spheres.ui.components.PixelTextInput
 import de.koenidv.spheres.ui.components.PxClipShape
+import de.koenidv.spheres.ui.components.rememberLiveNow
 import de.koenidv.spheres.ui.theme.DangerText
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Muted
@@ -135,13 +136,14 @@ fun SphereScreen(
     var renameDraft by remember(sphere.name) { mutableStateOf(sphere.name) }
 
     val byPerson = remember(entries) { entriesByPerson(entries) }
+    val now = rememberLiveNow()
 
-    val memberRows = remember(people, entries, sphere.id, events) {
+    val memberRows = remember(people, entries, sphere.id, events, now) {
         people
             .filter { inSphere(it, sphere.id, events) }
             .map { p ->
                 val pEntries = byPerson[p.id]
-                val priority = contactScore(p, pEntries)?.priority ?: -1.0
+                val priority = contactScore(p, pEntries, now)?.priority ?: -1.0
                 MemberRowData(p, priority, pEntries)
             }
             .sortedWith(compareByDescending<MemberRowData> { it.priority }.thenBy { it.person.name })
@@ -328,8 +330,8 @@ fun SphereScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                PixelAvatar(
-                                    name = p.name,
+                                PersonAvatar(
+                                    person = p,
                                     colorHex = info.color,
                                     size = 40.dp
                                 )

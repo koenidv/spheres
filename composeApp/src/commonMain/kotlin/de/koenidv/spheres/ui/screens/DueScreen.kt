@@ -66,13 +66,14 @@ import de.koenidv.spheres.domain.sphereIdsViaEvents
 import de.koenidv.spheres.ui.components.Chip
 import de.koenidv.spheres.ui.components.HealthRing
 import de.koenidv.spheres.ui.components.IconName
-import de.koenidv.spheres.ui.components.PixelAvatar
+import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelIcon
 import de.koenidv.spheres.ui.components.PixelPanel
 import de.koenidv.spheres.ui.components.PxClipShape
 import de.koenidv.spheres.ui.components.ScreenHeader
 import de.koenidv.spheres.ui.components.SwipeAction
 import de.koenidv.spheres.ui.components.SwipeRow
+import de.koenidv.spheres.ui.components.rememberLiveNow
 import de.koenidv.spheres.ui.theme.DangerText
 import de.koenidv.spheres.ui.theme.FieldBg
 import de.koenidv.spheres.ui.theme.Ink
@@ -129,7 +130,7 @@ fun DueScreen(
     var showAllSuggestions by remember { mutableStateOf(false) }
 
     val byPerson = remember(entries) { entriesByPerson(entries) }
-    val now = remember { currentTimeMillis() }
+    val now = rememberLiveNow()
 
     val overdue = remember(people, byPerson, now) {
         val list = mutableListOf<CheckRow>()
@@ -611,8 +612,8 @@ private fun DueRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    PixelAvatar(
-                        name = person.name,
+                    PersonAvatar(
+                        person = person,
                         colorHex = info.color,
                         size = 44.dp
                     )
@@ -689,8 +690,8 @@ private fun SuggestionRow(
                             .clickable(onClick = onOpen),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        PixelAvatar(
-                            name = person.name,
+                        PersonAvatar(
+                            person = person,
                             colorHex = intervalInfo(null).color,
                             size = 44.dp
                         )

@@ -23,6 +23,7 @@ data class SocialEvent(
     val color: String,
     val note: String = "",
     val createdAt: Long,
+    val createdBeforeLimit: Boolean? = null,
 )
 
 @Serializable
@@ -114,6 +115,14 @@ fun InteractionKind.toEntryKind(): EntryKind = when (this) {
 }
 
 @Serializable
+data class AvatarConfig(
+    val skin: Int? = null,
+    val hairStyle: String? = null,
+    val hairColor: Int? = null,
+    val glasses: String? = null,
+)
+
+@Serializable
 data class Person(
     val id: String,
     val name: String,
@@ -129,6 +138,8 @@ data class Person(
     val facts: List<Fact> = emptyList(),
     val snoozedUntil: Long? = null,
     val dismissedAt: Long? = null,
+    val avatar: AvatarConfig? = null,
+    val photoUrl: String? = null,
     val createdAt: Long,
 )
 
@@ -151,4 +162,15 @@ data class AppUser(
     val photoUrl: String? = null,
     val idToken: String? = null,
     val refreshToken: String? = null,
+)
+
+@Serializable
+data class BillingEntitlement(
+    val id: String = "unlimited",
+    val unlocked: Boolean = false,
+    val unlockedAt: Long? = null,
+    val productId: String? = null,
+    val platform: String? = null,
+    val purchaseToken: String? = null,
+    val revokedAt: Long? = null,
 )

@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
+import de.koenidv.spheres.domain.FREE_CONNECTIONS_LIMIT
+import de.koenidv.spheres.domain.FREE_SPHERES_LIMIT
 import de.koenidv.spheres.domain.Person
 import de.koenidv.spheres.domain.SocialEvent
 import de.koenidv.spheres.domain.Sphere
@@ -51,6 +53,7 @@ import de.koenidv.spheres.domain.sameDay
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.ButtonVariant
 import de.koenidv.spheres.ui.components.IconName
+import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelAvatar
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelIcon
@@ -231,13 +234,14 @@ fun SpheresScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 16.dp)
             ) {
+                val spheresAtLimit = !state.isUnlimited && spheres.size >= FREE_SPHERES_LIMIT
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "SPHERES",
+                        text = if (state.isUnlimited) "SPHERES" else "SPHERES · ${spheres.size}/$FREE_SPHERES_LIMIT",
                         style = TextStyle(
                             fontFamily = PixelFontFamily(),
                             fontSize = 14.sp,
@@ -247,7 +251,7 @@ fun SpheresScreen(
                     )
                     PixelButton(
                         text = "New sphere",
-                        icon = IconName.PLUS,
+                        icon = if (spheresAtLimit) IconName.SPARKLE else IconName.PLUS,
                         variant = ButtonVariant.SECONDARY,
                         size = ButtonSize.SM,
                         onClick = { SpheresStore.openSheet(SheetState.SphereEdit(null)) }
@@ -281,6 +285,27 @@ fun SpheresScreen(
                             )
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier
+                        .clip(PxClipShape)
+                        .clickable { onNavigate("/people") }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Everyone (${people.size}${if (!state.isUnlimited) "/$FREE_CONNECTIONS_LIMIT" else ""})",
+                        style = TextStyle(
+                            fontFamily = SansFontFamily(),
+                            fontSize = 14.sp,
+                            color = Muted
+                        )
+                    )
+                    PixelIcon(name = IconName.CHEVRON_RIGHT, size = 16.dp, tint = Muted)
                 }
             }
 
@@ -347,8 +372,8 @@ private fun AvatarStack(people: List<Person>) {
                     .background(Color.White)
                     .padding(2.dp)
             ) {
-                PixelAvatar(
-                    name = p.name,
+                PersonAvatar(
+                    person = p,
                     colorHex = info.color,
                     size = 28.dp
                 )
@@ -424,11 +449,19 @@ private fun ArcArt(
                     .background(Color.White)
                     .padding(2.dp)
             ) {
-                PixelAvatar(
-                    name = names[i % names.size],
-                    colorHex = "#9d7ce7",
-                    size = 28.dp
-                )
+                if (people.isNotEmpty()) {
+                    PersonAvatar(
+                        person = people[i % people.size],
+                        colorHex = "#9d7ce7",
+                        size = 28.dp
+                    )
+                } else {
+                    PixelAvatar(
+                        name = names[i % names.size],
+                        colorHex = "#9d7ce7",
+                        size = 28.dp
+                    )
+                }
             }
         }
     }

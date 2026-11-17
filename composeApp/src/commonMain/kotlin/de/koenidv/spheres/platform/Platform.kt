@@ -1,6 +1,7 @@
 package de.koenidv.spheres.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -18,6 +19,42 @@ data class PlatformReminderItem(
     val personId: String,
 )
 
+data class AppleSignInCredential(
+    val idToken: String,
+    val rawNonce: String,
+    val fullName: String? = null,
+    val authorizationCode: String? = null,
+)
+
+@Serializable
+data class BillingProductInfo(
+    val productId: String,
+    val formattedPrice: String,
+    val isStoreConnected: Boolean = false,
+)
+
+sealed interface PurchaseOutcome {
+    data class Success(
+        val productId: String,
+        val platform: String? = null,
+        val purchaseToken: String? = null,
+    ) : PurchaseOutcome
+    data object Cancelled : PurchaseOutcome
+    data class Error(val message: String) : PurchaseOutcome
+}
+
+sealed interface RestoreOutcome {
+    data class Found(val platform: String, val purchaseToken: String? = null) : RestoreOutcome
+    data object NotFound : RestoreOutcome
+}
+
+expect object PlatformBilling {
+    fun initialize(onEntitlementVerified: (verified: Boolean, platform: String?, purchaseToken: String?) -> Unit)
+    suspend fun queryProduct(productId: String): BillingProductInfo
+    suspend fun purchaseUnlimited(productId: String): PurchaseOutcome
+    suspend fun restorePurchases(productId: String): RestoreOutcome
+}
+
 expect fun haptic(durationMs: Int = 8)
 expect fun currentTimeMillis(): Long
 expect fun randomUuid(): String
@@ -26,6 +63,22 @@ expect object PlatformStorage {
     fun getString(key: String): String?
     fun putString(key: String, value: String?)
 }
+
+expect object PlatformPhotoCache {
+    fun get(key: String): ByteArray?
+    fun put(key: String, bytes: ByteArray)
+    fun delete(key: String)
+}
+
+expect fun decodeImageBitmap(bytes: ByteArray): ImageBitmap?
+
+expect fun cropSquareAvatarJpeg(
+    sourceBytes: ByteArray,
+    leftFrac: Float,
+    topFrac: Float,
+    widthFrac: Float,
+    heightFrac: Float,
+): ByteArray?
 
 expect object PlatformNotifications {
     fun isSupported(): Boolean
@@ -38,12 +91,63 @@ expect fun shareJsonFile(filename: String, jsonContent: String)
 expect fun openExternalUrl(url: String)
 expect suspend fun launchGoogleAuthFlow(authUrl: String, callbackScheme: String): String
 expect suspend fun signInWithGoogleNative(serverClientId: String): String?
+expect fun isAppleSignInSupported(): Boolean
+expect suspend fun signInWithAppleNative(): AppleSignInCredential
+
+/** Apple's official logo glyph for the Sign in with Apple button, null where unavailable. */
+expect fun appleLogoBitmap(): ImageBitmap?
 
 @Composable
 expect fun rememberContactPickerLauncher(onPicked: (List<PickedContact>) -> Unit): () -> Unit
+
+@Composable
+expect fun rememberPhotoPickerLauncher(onPicked: (ByteArray) -> Unit): () -> Unit
 
 @Composable
 expect fun StatusBarEffect(colorHex: Long, dimmed: Boolean)
 
 @Composable
 expect fun PlatformBackHandler(enabled: Boolean = true, onBack: () -> Unit)
+
+@Composable
+expect fun rememberNativeDatePicker(
+    initialDateMillis: Long,
+    onDateSelected: (Long) -> Unit,
+): () -> Unit
+
+enum class NotificationActionType { CHECKIN, SNOOZE }
+
+object NotificationActionBridge {
+    private var handler: ((personId: String, action: NotificationActionType) -> Unit)? = null
+    private const val PENDING_KEY = "pending_notification_actions"
+
+    fun registerHandler(onAction: (personId: String, action: NotificationActionType) -> Unit) {
+        handler = onAction
+        drainPending()
+    }
+
+    fun dispatch(personId: String, action: NotificationActionType) {
+        val active = handler
+        if (active != null) {
+            active(personId, action)
+        } else {
+            val existing = PlatformStorage.getString(PENDING_KEY).orEmpty()
+            val entry = "$personId:${action.name}"
+            val updated = if (existing.isBlank()) entry else "$existing\n$entry"
+            PlatformStorage.putString(PENDING_KEY, updated)
+        }
+    }
+
+    fun drainPending() {
+        val active = handler ?: return
+        val raw = PlatformStorage.getString(PENDING_KEY) ?: return
+        PlatformStorage.putString(PENDING_KEY, null)
+        raw.lines().filter { it.isNotBlank() }.forEach { line ->
+            val parts = line.split(":", limit = 2)
+            if (parts.size == 2) {
+                val action = NotificationActionType.entries.firstOrNull { it.name == parts[1] } ?: return@forEach
+                active(parts[0], action)
+            }
+        }
+    }
+}

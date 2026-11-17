@@ -15,6 +15,13 @@ import kotlin.math.round
 
 const val DAY = 86_400_000L
 
+const val FREE_CONNECTIONS_LIMIT = 25
+const val FREE_SPHERES_LIMIT = 3
+const val EVENT_GRACE_DURATION_MS = DAY
+const val UNLIMITED_PRODUCT_ID = "unlimited"
+const val UNLIMITED_PURCHASE_OPTION_ID = "unlimited-4"
+const val DEFAULT_UNLIMITED_PRICE = "3,99 €"
+
 val SPHERE_COLORS = listOf(
     "#eb78b0",
     "#e36f73",
@@ -33,7 +40,8 @@ val INTERVALS: List<IntervalSpec> = listOf(
     IntervalSpec(14, "2 Weekly", "#e36f73"),
     IntervalSpec(30, "Monthly", "#9d7ce7"),
     IntervalSpec(90, "Quarterly", "#5b9cf0"),
-    IntervalSpec(365, "Yearly", "#3fbf9f"),
+    IntervalSpec(180, "Half-yearly", "#3fbf9f"),
+    IntervalSpec(365, "Yearly", "#f0a83c"),
 )
 
 const val UNTRACKED_COLOR = "#8a8a8a"
@@ -118,7 +126,8 @@ data class DueInfo(val last: Long?, val dueAt: Long, val daysLeft: Int, val stat
 fun dueInfo(p: Person, entries: List<Entry>?, now: Long = currentTimeMillis()): DueInfo? {
     val interval = p.intervalDays ?: return null
     val last = lastContact(p, entries)
-    val dueAt = maxOf((last ?: p.createdAt) + interval * DAY, p.snoozedUntil ?: 0L)
+    val anchor = last ?: p.createdAt.takeIf { it > 0L } ?: now
+    val dueAt = maxOf(anchor + interval * DAY, p.snoozedUntil ?: 0L)
     val daysLeft = ceil((dueAt - now).toDouble() / DAY).toInt()
     val soonThreshold = maxOf(1, round(interval * 0.2).toInt())
     val status = when {
@@ -170,7 +179,8 @@ fun contactScore(
     val last = lastContact(p, entries)
     val latest = entries?.firstOrNull { !it.kind.isNote && it.at == last }
     val q = QUALITY_SCORE[latest?.quality ?: Quality.REGULAR] ?: QualityScoreSpec(100.0, 1.0)
-    val elapsed = now - (last ?: p.createdAt)
+    val anchor = last ?: p.createdAt.takeIf { it > 0L } ?: now
+    val elapsed = now - anchor
     val score = round(min(100.0, max(0.0, q.start - (100.0 * elapsed) / (2.0 * intervalDays * q.stretch * DAY)))).toInt()
     val weight = relationshipQuality(entries)?.weight ?: 1.0
     val snoozed = (p.snoozedUntil ?: 0L) > now
@@ -386,4 +396,55 @@ fun keepInTouchSuggestions(
     fresh.sortByDescending { it.person.createdAt }
     stale.sortByDescending { it.silence }
     return fresh + stale.map { it.suggestion }
+}
+
+enum class EventLimitStatus { OK, GRACE_WARNING, HARD_LIMIT }
+
+fun canAddPerson(peopleCount: Int, isUnlimited: Boolean, countToAdd: Int = 1): Boolean =
+    isUnlimited || (peopleCount + countToAdd <= FREE_CONNECTIONS_LIMIT)
+
+fun canCreateSphere(spheresCount: Int, isUnlimited: Boolean): Boolean =
+    isUnlimited || spheresCount < FREE_SPHERES_LIMIT
+
+fun wasEventCreatedBeforeLimit(event: SocialEvent, people: List<Person>): Boolean =
+    event.createdBeforeLimit ?: (people.count { it.createdAt < event.createdAt } < FREE_CONNECTIONS_LIMIT)
+
+fun eventGraceRemainingMs(
+    event: SocialEvent,
+    people: List<Person>,
+    now: Long = currentTimeMillis(),
+): Long {
+    if (!wasEventCreatedBeforeLimit(event, people)) return 0L
+    val elapsed = (now - event.createdAt).coerceAtLeast(0L)
+    return (EVENT_GRACE_DURATION_MS - elapsed).coerceAtLeast(0L)
+}
+
+fun isEventInGracePeriod(
+    event: SocialEvent,
+    people: List<Person>,
+    now: Long = currentTimeMillis(),
+): Boolean = eventGraceRemainingMs(event, people, now) > 0L
+
+fun evaluateEventLimitStatus(
+    event: SocialEvent,
+    people: List<Person>,
+    isUnlimited: Boolean,
+    now: Long = currentTimeMillis(),
+): EventLimitStatus {
+    if (isUnlimited || people.size < FREE_CONNECTIONS_LIMIT) return EventLimitStatus.OK
+    return if (isEventInGracePeriod(event, people, now)) {
+        EventLimitStatus.GRACE_WARNING
+    } else {
+        EventLimitStatus.HARD_LIMIT
+    }
+}
+
+fun formatGraceRemaining(remainingMs: Long): String {
+    if (remainingMs <= 0L) return "0m left"
+    val mins = ceil(remainingMs.toDouble() / 60_000.0).toInt()
+    return if (mins < 60) {
+        "${mins}m left"
+    } else {
+        "${ceil(remainingMs.toDouble() / 3_600_000.0).toInt().coerceAtMost(24)}h left"
+    }
 }

@@ -30,9 +30,10 @@ import de.koenidv.spheres.domain.entriesByPerson
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.ui.components.HealthRing
-import de.koenidv.spheres.ui.components.PixelAvatar
+import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelTextInput
 import de.koenidv.spheres.ui.components.PxClipShape
+import de.koenidv.spheres.ui.components.autoFocus
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Muted
 import de.koenidv.spheres.ui.theme.PixelFontFamily
@@ -71,7 +72,8 @@ fun PickPersonSheet(
         PixelTextInput(
             value = q,
             onValueChange = { q = it },
-            placeholder = "Search connections"
+            placeholder = "Search connections",
+            modifier = Modifier.autoFocus()
         )
 
         Column(
@@ -97,8 +99,8 @@ fun PickPersonSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    PixelAvatar(
-                        name = person.name,
+                    PersonAvatar(
+                        person = person,
                         colorHex = info.color,
                         size = 40.dp
                     )

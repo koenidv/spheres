@@ -30,11 +30,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.data.PaywallReason
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.Birthday
+import de.koenidv.spheres.domain.FREE_CONNECTIONS_LIMIT
 import de.koenidv.spheres.domain.INTERVALS
 import de.koenidv.spheres.domain.UNTRACKED_COLOR
+import de.koenidv.spheres.domain.canAddPerson
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.platform.PickedContact
 import de.koenidv.spheres.platform.currentTimeMillis
@@ -46,9 +49,12 @@ import de.koenidv.spheres.ui.components.PixelAvatar
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelIcon
 import de.koenidv.spheres.ui.components.PixelIconButton
+import de.koenidv.spheres.ui.components.PixelPanel
 import de.koenidv.spheres.ui.components.PixelTextArea
 import de.koenidv.spheres.ui.components.PixelTextInput
+import de.koenidv.spheres.ui.components.autoFocus
 import de.koenidv.spheres.ui.components.PxClipShape
+import de.koenidv.spheres.ui.theme.Amber
 import de.koenidv.spheres.ui.theme.FieldBg
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Muted
@@ -116,40 +122,52 @@ fun AddPersonSheet(
     val submit = {
         val currentBatch = batch
         if (currentBatch != null) {
-            for (c in currentBatch) {
-                SpheresStore.addPerson(
-                    name = c.name.trim(),
-                    intervalDays = interval,
-                    sphereIds = sphereIds,
-                    city = c.city?.trim()?.ifEmpty { null }
+            if (!canAddPerson(people.size, state.isUnlimited, currentBatch.size)) {
+                SpheresStore.openSheet(
+                    SheetState.Paywall(reason = PaywallReason.ConnectionsLimit, returnTo = sheet)
                 )
+            } else {
+                for (c in currentBatch) {
+                    SpheresStore.addPerson(
+                        name = c.name.trim(),
+                        intervalDays = interval,
+                        sphereIds = sphereIds,
+                        city = c.city?.trim()?.ifEmpty { null }
+                    )
+                }
+                SpheresStore.showToast("Added ${currentBatch.size} ${if (currentBatch.size == 1) "connection" else "connections"}")
+                SpheresStore.closeSheet()
             }
-            SpheresStore.showToast("Added ${currentBatch.size} ${if (currentBatch.size == 1) "connection" else "connections"}")
-            SpheresStore.closeSheet()
         } else {
             val n = name.trim()
             if (n.isNotEmpty()) {
-                val year = bYear.toIntOrNull()
-                val currentYear = Instant.fromEpochMilliseconds(currentTimeMillis())
-                    .toLocalDateTime(TimeZone.currentSystemDefault()).year
-                val birthday = if (bMonth in 1..12 && bDay in 1..31) {
-                    Birthday(
-                        month = bMonth,
-                        day = bDay,
-                        year = if (year != null && year in 1901..currentYear) year else null
+                if (!canAddPerson(people.size, state.isUnlimited, 1)) {
+                    SpheresStore.openSheet(
+                        SheetState.Paywall(reason = PaywallReason.ConnectionsLimit, returnTo = sheet)
                     )
-                } else null
+                } else {
+                    val year = bYear.toIntOrNull()
+                    val currentYear = Instant.fromEpochMilliseconds(currentTimeMillis())
+                        .toLocalDateTime(TimeZone.currentSystemDefault()).year
+                    val birthday = if (bMonth in 1..12 && bDay in 1..31) {
+                        Birthday(
+                            month = bMonth,
+                            day = bDay,
+                            year = if (year != null && year in 1901..currentYear) year else null
+                        )
+                    } else null
 
-                SpheresStore.addPerson(
-                    name = n,
-                    intervalDays = interval,
-                    sphereIds = sphereIds,
-                    birthday = birthday,
-                    note = note.trim(),
-                    city = city.trim().ifEmpty { null }
-                )
-                SpheresStore.showToast("Added $n")
-                SpheresStore.closeSheet()
+                    SpheresStore.addPerson(
+                        name = n,
+                        intervalDays = interval,
+                        sphereIds = sphereIds,
+                        birthday = birthday,
+                        note = note.trim(),
+                        city = city.trim().ifEmpty { null }
+                    )
+                    SpheresStore.showToast("Added $n")
+                    SpheresStore.closeSheet()
+                }
             }
         }
     }
@@ -161,6 +179,7 @@ fun AddPersonSheet(
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         val currentBatch = batch
+        val batchExceedsLimit = currentBatch != null && !canAddPerson(people.size, state.isUnlimited, currentBatch.size)
         if (currentBatch != null) {
             Field(label = "${currentBatch.size} from contacts") {
                 FlowRow(
@@ -213,6 +232,21 @@ fun AddPersonSheet(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
+                if (batchExceedsLimit) {
+                    val over = (people.size + currentBatch.size) - FREE_CONNECTIONS_LIMIT
+                    Spacer(modifier = Modifier.height(10.dp))
+                    PixelPanel(color = Amber) {
+                        Text(
+                            text = "Adding ${currentBatch.size} puts you $over over the $FREE_CONNECTIONS_LIMIT free connections limit. Tap any chip above to trim the list, or unlock Unlimited.",
+                            style = TextStyle(
+                                fontFamily = SansFontFamily(),
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                color = Ink
+                            )
+                        )
+                    }
+                }
             }
         } else {
             Row(
@@ -246,6 +280,7 @@ fun AddPersonSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
+                            .autoFocus(enabled = sheet.name.isNullOrBlank())
                     )
                     Box(
                         modifier = Modifier
@@ -428,7 +463,12 @@ fun AddPersonSheet(
 
         Spacer(modifier = Modifier.height(4.dp))
         PixelButton(
-            text = if (currentBatch != null) "Add ${currentBatch.size} ${if (currentBatch.size == 1) "connection" else "connections"}" else "Add connection",
+            text = when {
+                batchExceedsLimit -> "Unlock Unlimited · ${state.unlimitedPrice}"
+                currentBatch != null -> "Add ${currentBatch.size} ${if (currentBatch.size == 1) "connection" else "connections"}"
+                else -> "Add connection"
+            },
+            icon = if (batchExceedsLimit) IconName.SPARKLE else null,
             size = ButtonSize.LG,
             fullWidth = true,
             enabled = currentBatch != null || name.isNotBlank(),

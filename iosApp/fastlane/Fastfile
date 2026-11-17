@@ -1,0 +1,61 @@
+default_platform(:ios)
+
+# App Store Connect API key lives outside the repo, see ~/.appstoreconnect/
+API_KEY_PATH = ENV.fetch("ASC_API_KEY_PATH", File.expand_path("~/.appstoreconnect/fastlane_api_key.json"))
+APP_ID = "dev.koeni.spheres"
+
+# Loads the API key into the lane context, where cert/sigh/pilot pick it up automatically
+def load_api_key
+  config = JSON.parse(File.read(API_KEY_PATH))
+  app_store_connect_api_key(
+    key_id: config["key_id"],
+    issuer_id: config["issuer_id"],
+    key_filepath: config["key_filepath"]
+  )
+end
+
+platform :ios do
+  desc "Register the App ID in the Developer Portal and enable its capabilities"
+  lane :register_app_id do
+    load_api_key
+    bundle_id = Spaceship::ConnectAPI::BundleId.find(APP_ID)
+    if bundle_id
+      UI.message("App ID #{APP_ID} already registered")
+    else
+      bundle_id = Spaceship::ConnectAPI::BundleId.create(name: "Spheres", platform: "IOS", identifier: APP_ID)
+      UI.success("Registered App ID #{APP_ID}")
+    end
+
+    apple_id_auth = Spaceship::ConnectAPI::BundleIdCapability::Type::APPLE_ID_AUTH
+    if bundle_id.get_capabilities.any? { |c| c.capability_type == apple_id_auth }
+      UI.message("Sign in with Apple already enabled for #{APP_ID}")
+    else
+      # update_capability needs an Apple ID session, create_capability works with the API key
+      bundle_id.create_capability(
+        apple_id_auth,
+        settings: [{ key: "APPLE_ID_AUTH_APP_CONSENT", options: [{ key: "PRIMARY_APP_CONSENT" }] }]
+      )
+      UI.success("Sign in with Apple enabled for #{APP_ID}")
+    end
+  end
+
+  desc "Fetch or create the App Store distribution certificate and provisioning profile"
+  lane :signing do |options|
+    load_api_key
+    cert
+    sigh(app_identifier: APP_ID, force: options[:force_profile] || false)
+  end
+
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    signing
+    build_app(
+      project: "iosApp.xcodeproj",
+      scheme: "iosApp",
+      configuration: "Release",
+      export_method: "app-store",
+      xcargs: "-allowProvisioningUpdates"
+    )
+    upload_to_testflight(skip_waiting_for_build_processing: true)
+  end
+end

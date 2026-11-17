@@ -13,3 +13,18 @@ iosApp/Pods/
 captures/
 .externalNativeBuild/
 .cxx/
+
+# fastlane
+iosApp/fastlane/report.xml
+iosApp/fastlane/test_output/
+iosApp/*.ipa
+iosApp/*.dSYM.zip
+
+iosApp/*.mobileprovision
+iosApp/*.cer
+
+# signing keys and release bundles
+*.jks
+*.keystore
+composeApp/release/
+node_modules/

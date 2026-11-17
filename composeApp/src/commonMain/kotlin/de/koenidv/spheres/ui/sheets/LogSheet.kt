@@ -35,19 +35,15 @@ import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.Chip
 import de.koenidv.spheres.ui.components.Field
 import de.koenidv.spheres.ui.components.IconName
+import de.koenidv.spheres.ui.components.NativeDatePickerField
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelTextArea
-import de.koenidv.spheres.ui.components.PixelTextInput
 import de.koenidv.spheres.ui.components.QualityPicker
 import de.koenidv.spheres.ui.components.Segmented
 import de.koenidv.spheres.ui.components.SegmentedOption
+import de.koenidv.spheres.ui.components.autoFocus
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.PixelFontFamily
-import kotlinx.datetime.Instant
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
 
 private data class KindOption(val value: InteractionKind, val label: String, val icon: IconName)
 
@@ -57,23 +53,6 @@ private val KINDS = listOf(
     KindOption(InteractionKind.MESSAGE, "Message", IconName.MESSAGE),
     KindOption(InteractionKind.OTHER, "Other", IconName.CHAT),
 )
-
-private fun todayStr(): String {
-    val date = Instant.fromEpochMilliseconds(currentTimeMillis()).toLocalDateTime(TimeZone.currentSystemDefault()).date
-    val m = date.monthNumber.toString().padStart(2, '0')
-    val d = date.dayOfMonth.toString().padStart(2, '0')
-    return "${date.year}-$m-$d"
-}
-
-private fun dateToTs(s: String): Long {
-    return try {
-        val parts = s.split("-").map { it.toInt() }
-        val ldt = LocalDateTime(parts[0], parts[1], parts[2], 12, 0, 0, 0)
-        ldt.toInstant(TimeZone.currentSystemDefault()).toEpochMilliseconds()
-    } catch (_: Exception) {
-        currentTimeMillis()
-    }
-}
 
 @Composable
 fun LogSheet(
@@ -86,7 +65,7 @@ fun LogSheet(
 
     var kind by remember { mutableStateOf(InteractionKind.CHECKIN) }
     var whenChoice by remember { mutableStateOf("today") }
-    var date by remember { mutableStateOf(todayStr()) }
+    var dateMillis by remember { mutableStateOf(currentTimeMillis()) }
     var text by remember { mutableStateOf("") }
     var quality by remember { mutableStateOf<Quality?>(null) }
     var noteType by remember { mutableStateOf("note") }
@@ -106,7 +85,7 @@ fun LogSheet(
                 val at = when (whenChoice) {
                     "today" -> currentTimeMillis()
                     "yesterday" -> currentTimeMillis() - DAY
-                    else -> dateToTs(date)
+                    else -> dateMillis
                 }
                 SpheresStore.logEntry(
                     personId = person.id,
@@ -171,10 +150,9 @@ fun LogSheet(
             }
 
             if (whenChoice == "pick") {
-                PixelTextInput(
-                    value = date,
-                    onValueChange = { date = it },
-                    placeholder = "YYYY-MM-DD"
+                NativeDatePickerField(
+                    dateMillis = dateMillis,
+                    onDateSelected = { dateMillis = it }
                 )
             }
 
@@ -219,7 +197,8 @@ fun LogSheet(
             value = text,
             onValueChange = { text = it },
             placeholder = placeholder,
-            minLines = minLines
+            minLines = minLines,
+            modifier = Modifier.autoFocus(enabled = isNote)
         )
 
         Spacer(modifier = Modifier.height(4.dp))

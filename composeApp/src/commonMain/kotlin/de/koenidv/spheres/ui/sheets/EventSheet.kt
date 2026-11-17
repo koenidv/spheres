@@ -36,6 +36,7 @@ import de.koenidv.spheres.ui.components.ButtonVariant
 import de.koenidv.spheres.ui.components.Chip
 import de.koenidv.spheres.ui.components.Field
 import de.koenidv.spheres.ui.components.IconName
+import de.koenidv.spheres.ui.components.NativeDatePickerField
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelIcon
 import de.koenidv.spheres.ui.components.PixelTextArea
@@ -46,32 +47,6 @@ import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.SansFontFamily
 import de.koenidv.spheres.ui.theme.parseHexColor
 import kotlinx.coroutines.delay
-import kotlinx.datetime.Instant
-import kotlinx.datetime.LocalDate
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
-
-private fun toDateStr(ts: Long): String {
-    val date = Instant.fromEpochMilliseconds(ts).toLocalDateTime(TimeZone.currentSystemDefault()).date
-    val m = date.monthNumber.toString().padStart(2, '0')
-    val d = date.dayOfMonth.toString().padStart(2, '0')
-    return "${date.year}-$m-$d"
-}
-
-private fun fromDateStr(s: String): Long? {
-    return try {
-        val parts = s.split("-").map { it.toInt() }
-        if (parts.size == 3) {
-            val (y, m, d) = parts
-            val ldt = LocalDateTime(y, m, d, 12, 0, 0, 0)
-            ldt.toInstant(TimeZone.currentSystemDefault()).toEpochMilliseconds()
-        } else null
-    } catch (_: Exception) {
-        null
-    }
-}
 
 @Composable
 fun EventSheet(
@@ -84,7 +59,7 @@ fun EventSheet(
     val people = state.people
 
     var name by remember { mutableStateOf(existing.name) }
-    var date by remember { mutableStateOf(toDateStr(existing.date)) }
+    var dateMillis by remember { mutableStateOf(existing.date) }
     var sphereIds by remember { mutableStateOf(existing.sphereIds) }
     var color by remember { mutableStateOf(existing.color) }
     var note by remember { mutableStateOf(existing.note) }
@@ -117,7 +92,7 @@ fun EventSheet(
             SpheresStore.updateEvent(
                 id = existing.id,
                 name = n,
-                date = fromDateStr(date) ?: existing.date,
+                date = dateMillis,
                 sphereIds = sphereIds,
                 color = color,
                 note = note.trim()
@@ -151,10 +126,9 @@ fun EventSheet(
         )
 
         Field(label = "Date") {
-            PixelTextInput(
-                value = date,
-                onValueChange = { date = it },
-                placeholder = "YYYY-MM-DD"
+            NativeDatePickerField(
+                dateMillis = dateMillis,
+                onDateSelected = { dateMillis = it }
             )
         }
 

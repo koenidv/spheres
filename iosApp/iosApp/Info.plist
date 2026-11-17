@@ -4,6 +4,15 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchIcon</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<false/>
+	</dict>
 	<key>NSContactsUsageDescription</key>
 	<string>Spheres uses your contacts so you can quickly add connections.</string>
 	<key>CFBundleURLTypes</key>
@@ -13,7 +22,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.467518573582-3gs9g4jn3gvd63vnsrko5utltbu5der2</string>
+				<string>com.googleusercontent.apps.467518573582-3j8mon1pe7fs6l75deic2f4pc8tncvhc</string>
 				<string>com.googleusercontent.apps.467518573582-5o6j7rfmuob5uo8b0bmdlpqjekrl3qqn</string>
 			</array>
 		</dict>

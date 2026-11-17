@@ -1,0 +1,70 @@
+{
+  "project_info": {
+    "project_number": "467518573582",
+    "project_id": "friendly-spheres",
+    "storage_bucket": "friendly-spheres.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467518573582:android:bde685cc9fa07ee6cd805f",
+        "android_client_info": {
+          "package_name": "dev.koeni.spheres"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467518573582-8gbr554glh18mv1kgni1jnk6ee8om9bt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "dev.koeni.spheres",
+            "certificate_hash": "8f80ebc0569816ca7fc58f01dd773cad7674c66f"
+          }
+        },
+        {
+          "client_id": "467518573582-eqbntmgt9pvo8dg7fu0qrjse9blspnue.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "dev.koeni.spheres",
+            "certificate_hash": "b73c9f81a8ec8c45cc818a08c353bd909e71d25a"
+          }
+        },
+        {
+          "client_id": "467518573582-r8hkgkjavc5l2eumd1pj8oou74mfkcf5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "dev.koeni.spheres",
+            "certificate_hash": "e86ebcceca5be04a1f2e54eeb91f8b39d5999bc2"
+          }
+        },
+        {
+          "client_id": "467518573582-5o6j7rfmuob5uo8b0bmdlpqjekrl3qqn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBUEx76YXxEpC-qtHNamly7vLR3RiB4V8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467518573582-5o6j7rfmuob5uo8b0bmdlpqjekrl3qqn.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "467518573582-3gs9g4jn3gvd63vnsrko5utltbu5der2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "de.koenidv.spheres"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

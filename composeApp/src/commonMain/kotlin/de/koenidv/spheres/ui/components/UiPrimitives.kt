@@ -29,21 +29,38 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import de.koenidv.spheres.platform.currentTimeMillis
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.domain.Quality
+import de.koenidv.spheres.domain.formatDay
+import de.koenidv.spheres.platform.rememberNativeDatePicker
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import de.koenidv.spheres.ui.theme.CardBg
 import de.koenidv.spheres.ui.theme.DangerFill
 import de.koenidv.spheres.ui.theme.DangerShadow
@@ -318,6 +335,85 @@ fun Field(
                 modifier = Modifier.padding(top = 4.dp)
             )
         }
+    }
+}
+
+fun Modifier.autoFocus(enabled: Boolean = true, delayMs: Long = 100L): Modifier = composed {
+    if (!enabled) return@composed this
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(enabled) {
+        if (delayMs > 0L) delay(delayMs)
+        focusRequester.requestFocus()
+        keyboard?.show()
+    }
+    this.focusRequester(focusRequester)
+}
+
+@Composable
+fun rememberLiveNow(intervalMs: Long = 60_000L): Long {
+    var now by remember { mutableLongStateOf(currentTimeMillis()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                now = currentTimeMillis()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(intervalMs) {
+        while (true) {
+            delay(intervalMs)
+            now = currentTimeMillis()
+        }
+    }
+
+    return now
+}
+
+@Composable
+fun NativeDatePickerField(
+    dateMillis: Long,
+    onDateSelected: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val openPicker = rememberNativeDatePicker(
+        initialDateMillis = dateMillis,
+        onDateSelected = onDateSelected
+    )
+    val year = Instant.fromEpochMilliseconds(dateMillis)
+        .toLocalDateTime(TimeZone.currentSystemDefault()).year
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .clip(PxClipShape)
+            .background(FieldBg)
+            .clickable { openPicker() }
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "${formatDay(dateMillis)} $year",
+            style = TextStyle(
+                fontFamily = SansFontFamily(),
+                fontSize = 16.sp,
+                color = Ink
+            )
+        )
+        PixelIcon(
+            name = IconName.CALENDAR,
+            size = 18.dp,
+            tint = Ink.copy(alpha = 0.55f)
+        )
     }
 }
 

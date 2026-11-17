@@ -2,6 +2,7 @@ package de.koenidv.spheres.domain
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -219,5 +220,149 @@ class LogicTest {
 
         // Formatting
         assertEquals("15 May 1990", formatBirthday(upcoming))
+    }
+
+    @Test
+    fun testHalfYearInterval() {
+        val info = intervalInfo(180)
+        assertEquals(180, info.days)
+        assertEquals("Half-yearly", info.label)
+        assertTrue(INTERVALS.any { it.days == 180 })
+    }
+
+    @Test
+    fun testCountdownWithoutInteractions() {
+        val createdAt = 1_700_000_000_000L
+        val person = Person(
+            id = "p_new",
+            name = "Alex",
+            intervalDays = 14,
+            createdAt = createdAt,
+        )
+
+        val day0Due = dueInfo(person, emptyList(), createdAt)
+        assertNotNull(day0Due)
+        assertEquals(14, day0Due.daysLeft)
+        assertEquals(DueStatus.OK, day0Due.status)
+
+        val day10Due = dueInfo(person, emptyList(), createdAt + 10 * DAY)
+        assertNotNull(day10Due)
+        assertEquals(4, day10Due.daysLeft)
+        assertEquals(DueStatus.OK, day10Due.status)
+
+        val day15Due = dueInfo(person, emptyList(), createdAt + 15 * DAY)
+        assertNotNull(day15Due)
+        assertEquals(-1, day15Due.daysLeft)
+        assertEquals(DueStatus.OVERDUE, day15Due.status)
+
+        val day14Score = contactScore(person, emptyList(), createdAt + 14 * DAY)
+        assertNotNull(day14Score)
+        assertEquals(50, day14Score.score)
+    }
+
+    @Test
+    fun testFreeTierConnectionAndSphereLimits() {
+        assertTrue(canAddPerson(peopleCount = FREE_CONNECTIONS_LIMIT - 1, isUnlimited = false))
+        assertFalse(canAddPerson(peopleCount = FREE_CONNECTIONS_LIMIT, isUnlimited = false))
+        assertFalse(canAddPerson(peopleCount = FREE_CONNECTIONS_LIMIT - 1, isUnlimited = false, countToAdd = 2))
+        assertTrue(canAddPerson(peopleCount = FREE_CONNECTIONS_LIMIT - 2, isUnlimited = false, countToAdd = 2))
+        assertTrue(canAddPerson(peopleCount = 100, isUnlimited = true, countToAdd = 50))
+
+        assertTrue(canCreateSphere(spheresCount = FREE_SPHERES_LIMIT - 1, isUnlimited = false))
+        assertFalse(canCreateSphere(spheresCount = FREE_SPHERES_LIMIT, isUnlimited = false))
+        assertTrue(canCreateSphere(spheresCount = 20, isUnlimited = true))
+    }
+
+    @Test
+    fun testEvent24HourGracePeriodWhenCreatedBeforeLimit() {
+        val createdAt = 1_700_000_000_000L
+        val event = SocialEvent(
+            id = "ev1",
+            name = "Summer Dinner",
+            date = createdAt,
+            color = "#9d7ce7",
+            createdAt = createdAt,
+            createdBeforeLimit = true,
+        )
+        val peopleUnder = (1 until FREE_CONNECTIONS_LIMIT).map { idx ->
+            Person(id = "p$idx", name = "Person $idx", createdAt = createdAt - 1_000L)
+        }
+        val peopleAtLimit = peopleUnder + Person(
+            id = "p_last",
+            name = "Person $FREE_CONNECTIONS_LIMIT",
+            createdAt = createdAt + 60_000L,
+        )
+
+        assertEquals(
+            EventLimitStatus.OK,
+            evaluateEventLimitStatus(event, peopleUnder, isUnlimited = false, now = createdAt + 48 * 3_600_000L)
+        )
+
+        val oneHourLater = createdAt + 3_600_000L
+        assertEquals(
+            EventLimitStatus.GRACE_WARNING,
+            evaluateEventLimitStatus(event, peopleAtLimit, isUnlimited = false, now = oneHourLater)
+        )
+        assertTrue(isEventInGracePeriod(event, peopleAtLimit, now = oneHourLater))
+        assertEquals(23 * 3_600_000L, eventGraceRemainingMs(event, peopleAtLimit, now = oneHourLater))
+        assertEquals("23h left", formatGraceRemaining(eventGraceRemainingMs(event, peopleAtLimit, now = oneHourLater)))
+        assertEquals("30m left", formatGraceRemaining(30 * 60_000L))
+
+        val after24h = createdAt + DAY
+        assertEquals(
+            EventLimitStatus.HARD_LIMIT,
+            evaluateEventLimitStatus(event, peopleAtLimit, isUnlimited = false, now = after24h)
+        )
+        assertFalse(isEventInGracePeriod(event, peopleAtLimit, now = after24h))
+        assertEquals(0L, eventGraceRemainingMs(event, peopleAtLimit, now = after24h))
+        assertEquals("0m left", formatGraceRemaining(0L))
+    }
+
+    @Test
+    fun testEventCreatedAfterLimitHasImmediateHardLimit() {
+        val createdAt = 1_700_000_000_000L
+        val peopleAtLimit = (1..FREE_CONNECTIONS_LIMIT).map { idx ->
+            Person(id = "p$idx", name = "Person $idx", createdAt = createdAt - 10_000L)
+        }
+        val explicitAfter = SocialEvent(
+            id = "ev_after",
+            name = "Late Mixer",
+            date = createdAt,
+            color = "#eb78b0",
+            createdAt = createdAt,
+            createdBeforeLimit = false,
+        )
+        assertEquals(
+            EventLimitStatus.HARD_LIMIT,
+            evaluateEventLimitStatus(explicitAfter, peopleAtLimit, isUnlimited = false, now = createdAt + 60_000L)
+        )
+        assertEquals(0L, eventGraceRemainingMs(explicitAfter, peopleAtLimit, now = createdAt + 60_000L))
+
+        val legacyAfter = explicitAfter.copy(createdBeforeLimit = null)
+        assertFalse(wasEventCreatedBeforeLimit(legacyAfter, peopleAtLimit))
+        assertEquals(
+            EventLimitStatus.HARD_LIMIT,
+            evaluateEventLimitStatus(legacyAfter, peopleAtLimit, isUnlimited = false, now = createdAt + 60_000L)
+        )
+    }
+
+    @Test
+    fun testUnlimitedUnlocksEventsAfterGracePeriod() {
+        val createdAt = 1_700_000_000_000L
+        val event = SocialEvent(
+            id = "ev_unlim",
+            name = "Festival",
+            date = createdAt,
+            color = "#5b9cf0",
+            createdAt = createdAt,
+            createdBeforeLimit = false,
+        )
+        val people = (1..FREE_CONNECTIONS_LIMIT + 5).map { idx ->
+            Person(id = "p$idx", name = "Person $idx", createdAt = createdAt - 1_000L)
+        }
+        assertEquals(
+            EventLimitStatus.OK,
+            evaluateEventLimitStatus(event, people, isUnlimited = true, now = createdAt + 7 * DAY)
+        )
     }
 }

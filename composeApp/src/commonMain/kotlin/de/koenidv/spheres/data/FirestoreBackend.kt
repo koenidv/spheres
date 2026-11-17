@@ -1,11 +1,13 @@
 package de.koenidv.spheres.data
 
 import de.koenidv.spheres.domain.AppUser
+import de.koenidv.spheres.domain.BillingEntitlement
 import de.koenidv.spheres.domain.Entry
 import de.koenidv.spheres.domain.Person
 import de.koenidv.spheres.domain.SocialEvent
 import de.koenidv.spheres.domain.Sphere
 import de.koenidv.spheres.platform.launchGoogleAuthFlow
+import de.koenidv.spheres.platform.signInWithAppleNative
 import de.koenidv.spheres.platform.signInWithGoogleNative
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -16,6 +18,7 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.readRawBytes
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.decodeURLQueryComponent
@@ -38,21 +41,43 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
-const val FIREBASE_API_KEY = "AIzaSyCjx-Ip33oL9ipYlbMNw6DSgeqLMz61QqY"
+const val FIREBASE_API_KEY = "AIzaSyCBUEx76YXxEpC-qtHNamly7vLR3RiB4V8"
 const val FIREBASE_PROJECT_ID = "friendly-spheres"
-const val FIREBASE_APP_ID = "1:467518573582:web:d9b980ac43a2d801cd805f"
+const val FIREBASE_APP_ID = "1:467518573582:android:bde685cc9fa07ee6cd805f"
+const val FIREBASE_STORAGE_BUCKET = "friendly-spheres.firebasestorage.app"
 const val GOOGLE_OAUTH_CLIENT_ID = "467518573582-5o6j7rfmuob5uo8b0bmdlpqjekrl3qqn.apps.googleusercontent.com"
 const val GOOGLE_OAUTH_CALLBACK_SCHEME = "com.googleusercontent.apps.467518573582-5o6j7rfmuob5uo8b0bmdlpqjekrl3qqn"
-const val GOOGLE_IOS_CLIENT_ID = "467518573582-3gs9g4jn3gvd63vnsrko5utltbu5der2.apps.googleusercontent.com"
-const val GOOGLE_IOS_CALLBACK_SCHEME = "com.googleusercontent.apps.467518573582-3gs9g4jn3gvd63vnsrko5utltbu5der2"
+const val GOOGLE_IOS_CLIENT_ID = "467518573582-3j8mon1pe7fs6l75deic2f4pc8tncvhc.apps.googleusercontent.com"
+const val GOOGLE_IOS_CALLBACK_SCHEME = "com.googleusercontent.apps.467518573582-3j8mon1pe7fs6l75deic2f4pc8tncvhc"
 
 private const val FIRESTORE_BASE =
     "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT_ID/databases/(default)/documents"
+private const val STORAGE_BASE =
+    "https://firebasestorage.googleapis.com/v0/b/$FIREBASE_STORAGE_BUCKET/o"
 private const val IDENTITY_TOOLKIT_URL =
     "https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=$FIREBASE_API_KEY"
 private const val TOKEN_REFRESH_URL =
     "https://securetoken.googleapis.com/v1/token?key=$FIREBASE_API_KEY"
+private const val ACCOUNT_UPDATE_URL =
+    "https://identitytoolkit.googleapis.com/v1/accounts:update?key=$FIREBASE_API_KEY"
+private const val VERIFY_PURCHASE_URL =
+    "https://us-central1-$FIREBASE_PROJECT_ID.cloudfunctions.net/verifyPurchase"
+private const val DELETE_ACCOUNT_URL =
+    "https://us-central1-$FIREBASE_PROJECT_ID.cloudfunctions.net/deleteAccount"
+private const val REVOKE_TOKEN_URL =
+    "https://identitytoolkit.googleapis.com/v2/accounts:revokeToken?key=$FIREBASE_API_KEY"
+
+sealed interface BillingClaimResult {
+    data object Claimed : BillingClaimResult
+    data object Transferred : BillingClaimResult
+    data object OwnedByOther : BillingClaimResult
+    data class Error(val message: String) : BillingClaimResult
+}
+
+data class StorageUploadResult(val statusCode: Int, val downloadUrl: String?)
 
 class FirestoreBackend(
     private val client: HttpClient = HttpClient {
@@ -114,10 +139,43 @@ class FirestoreBackend(
         return null
     }
 
-    suspend fun signInWithGoogleIdToken(idToken: String): AppUser? {
+    suspend fun signInWithApple(): AppUser {
+        val credential = signInWithAppleNative()
+        val user = signInWithIdp(
+            "id_token=${credential.idToken}&providerId=apple.com&nonce=${credential.rawNonce.encodeURLParameter()}",
+            credential.idToken
+        ) ?: throw Exception("Apple sign-in failed")
+
+        // Apple only shares the name on the first sign-in and Firebase doesn't store it, so persist it ourselves
+        val fullName = credential.fullName?.takeIf { it.isNotBlank() } ?: return user
+        val hasDisplayName = user.name != (user.email ?: "You")
+        if (hasDisplayName) return user
+        updateDisplayName(user.idToken, fullName)
+        return user.copy(name = fullName)
+    }
+
+    private suspend fun updateDisplayName(idToken: String?, displayName: String) {
+        if (idToken.isNullOrBlank()) return
+        try {
+            client.post(ACCOUNT_UPDATE_URL) {
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject {
+                    put("idToken", idToken)
+                    put("displayName", displayName)
+                    put("returnSecureToken", false)
+                })
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun signInWithGoogleIdToken(idToken: String): AppUser? =
+        signInWithIdp("id_token=$idToken&providerId=google.com", idToken)
+
+    private suspend fun signInWithIdp(postBody: String, idToken: String): AppUser? {
         return try {
             val payload = buildJsonObject {
-                put("postBody", "id_token=$idToken&providerId=google.com")
+                put("postBody", postBody)
                 put("requestUri", "http://localhost")
                 put("returnIdpCredential", true)
                 put("returnSecureToken", true)
@@ -145,6 +203,45 @@ class FirestoreBackend(
             )
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /** Reads the `firebase.sign_in_provider` claim, e.g. "google.com" or "apple.com". */
+    @OptIn(ExperimentalEncodingApi::class)
+    fun signInProvider(idToken: String): String? = try {
+        val payload = idToken.split(".")[1]
+        val decoded = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT_OPTIONAL).decode(payload)
+        val claims = json.parseToJsonElement(decoded.decodeToString()) as? JsonObject
+        val firebase = claims?.get("firebase") as? JsonObject
+        (firebase?.get("sign_in_provider") as? JsonPrimitive)?.content
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Revokes the user's Apple tokens, as required by Apple when deleting an account. */
+    suspend fun revokeAppleToken(idToken: String, authorizationCode: String): Boolean {
+        return try {
+            val response = client.post(REVOKE_TOKEN_URL) {
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject {
+                    put("providerId", "apple.com")
+                    put("tokenType", "CODE")
+                    put("token", authorizationCode)
+                    put("idToken", idToken)
+                })
+            }
+            response.status.isSuccess()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun deleteAccount(idToken: String) {
+        val response = client.post(DELETE_ACCOUNT_URL) {
+            header("Authorization", "Bearer $idToken")
+        }
+        if (!response.status.isSuccess()) {
+            throw Exception("Could not delete account (${response.status.value})")
         }
     }
 
@@ -206,6 +303,119 @@ class FirestoreBackend(
 
     suspend fun deleteEntry(uid: String, id: String, idToken: String?) {
         deleteDocument(uid, "entries", id, idToken)
+    }
+
+    suspend fun fetchEntitlement(uid: String, idToken: String?): BillingEntitlement? =
+        fetchCollection<BillingEntitlement>(uid, "billing", idToken)
+            .firstOrNull { it.id == "unlimited" || it.unlocked }
+
+    suspend fun saveEntitlement(uid: String, entitlement: BillingEntitlement, idToken: String?) {
+        saveDocument(uid, "billing", entitlement.id, entitlement, idToken)
+    }
+
+    suspend fun uploadAvatarPhoto(
+        uid: String,
+        personId: String,
+        version: Long,
+        jpegBytes: ByteArray,
+        idToken: String?,
+    ): StorageUploadResult {
+        return try {
+            val objectPath = "users/$uid/avatars/${personId}_$version.jpg"
+            val encodedName = objectPath.encodeURLParameter()
+            val url = "$STORAGE_BASE?uploadType=media&name=$encodedName"
+            val response = client.post(url) {
+                contentType(ContentType.Image.JPEG)
+                if (!idToken.isNullOrBlank()) {
+                    header("Authorization", "Firebase $idToken")
+                }
+                setBody(jpegBytes)
+            }
+            val code = response.status.value
+            if (!response.status.isSuccess()) {
+                return StorageUploadResult(code, null)
+            }
+            val respJson = json.parseToJsonElement(response.bodyAsText()) as? JsonObject
+            val downloadTokens = (respJson?.get("downloadTokens") as? JsonPrimitive)?.content
+            val tokenParam = downloadTokens
+                ?.split(",")
+                ?.firstOrNull { it.isNotBlank() }
+                ?.let { "&token=${it.encodeURLParameter()}" }
+                .orEmpty()
+            StorageUploadResult(code, "$STORAGE_BASE/$encodedName?alt=media$tokenParam")
+        } catch (_: Exception) {
+            StorageUploadResult(0, null)
+        }
+    }
+
+    suspend fun downloadBytes(url: String, idToken: String? = null): ByteArray? {
+        return try {
+            val response = client.get(url) {
+                if (!idToken.isNullOrBlank() && url.startsWith(STORAGE_BASE)) {
+                    header("Authorization", "Firebase $idToken")
+                }
+            }
+            if (!response.status.isSuccess()) return null
+            response.readRawBytes()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun claimPurchase(
+        idToken: String,
+        platform: String,
+        productId: String,
+        purchaseToken: String,
+        allowTransfer: Boolean = false,
+    ): BillingClaimResult {
+        return try {
+            val payload = buildJsonObject {
+                put("platform", platform)
+                put("productId", productId)
+                put("purchaseToken", purchaseToken)
+                put("allowTransfer", allowTransfer)
+            }
+            val response = client.post(VERIFY_PURCHASE_URL) {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $idToken")
+                setBody(payload)
+            }
+            val text = response.bodyAsText()
+            val bodyJson = try { json.parseToJsonElement(text) as? JsonObject } catch (_: Exception) { null }
+            val status = (bodyJson?.get("status") as? JsonPrimitive)?.content
+            when {
+                response.status.value == 409 || status == "owned_by_other" -> BillingClaimResult.OwnedByOther
+                response.status.isSuccess() && status == "transferred" -> BillingClaimResult.Transferred
+                response.status.isSuccess() -> BillingClaimResult.Claimed
+                else -> {
+                    val err = (bodyJson?.get("error") as? JsonPrimitive)?.content
+                        ?: "Could not verify purchase (${response.status.value})"
+                    BillingClaimResult.Error(err)
+                }
+            }
+        } catch (e: Exception) {
+            BillingClaimResult.Error(e.message ?: "Network error while verifying purchase")
+        }
+    }
+
+    suspend fun deleteAvatarPhotoByUrl(photoUrl: String, idToken: String?) {
+        if (!photoUrl.startsWith("$STORAGE_BASE/")) return
+        val rawPath = photoUrl.removePrefix("$STORAGE_BASE/").substringBefore("?")
+        if (rawPath.isBlank()) return
+        val objectPath = try {
+            rawPath.decodeURLQueryComponent()
+        } catch (_: Exception) {
+            return
+        }
+        try {
+            client.delete("$STORAGE_BASE/${objectPath.encodeURLParameter()}") {
+                if (!idToken.isNullOrBlank()) {
+                    header("Authorization", "Firebase $idToken")
+                }
+            }
+        } catch (_: Exception) {
+        }
     }
 
     private suspend inline fun <reified T> fetchCollection(

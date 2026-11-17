@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,11 +32,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.INTERVALS
+import de.koenidv.spheres.platform.appleLogoBitmap
+import de.koenidv.spheres.platform.isAppleSignInSupported
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.ButtonVariant
 import de.koenidv.spheres.ui.components.PixelAvatar
@@ -102,45 +106,31 @@ private fun buildArcPaths(wDp: Float, arcTopDp: Float, hDp: Float, density: Floa
     return Pair(strokePath, fillPath)
 }
 
-private val G_GRID = listOf(
-    "..BBBBBB..",
-    ".BBBBBBBB.",
-    "RRR....BBB",
-    "RR......BB",
-    "RR.YYYYYYY",
-    "RR.YYYYYYY",
-    "RR......GG",
-    "RRR....GGG",
-    ".RRGGGGGG.",
-    "..GGGGGG.."
-)
-
-private val G_COLORS = mapOf(
-    'R' to Color(0xFFEA4335),
-    'B' to Color(0xFF4285F4),
-    'Y' to Color(0xFFFBBC05),
-    'G' to Color(0xFF34A853)
-)
-
-@Composable
-fun PixelG(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(20.dp)) {
-        val stepX = size.width / 10f
-        val stepY = size.height / 10f
-        G_GRID.forEachIndexed { y, row ->
-            row.forEachIndexed { x, ch ->
-                val color = G_COLORS[ch]
-                if (color != null) {
-                    drawRect(
-                        color = color,
-                        topLeft = Offset(x * stepX, y * stepY),
-                        size = Size(stepX, stepY)
-                    )
-                }
-            }
-        }
-    }
-}
+// Google's official "G" mark (48x48 viewport), as required by Google's sign-in branding guidelines
+private val GoogleLogo: ImageVector = ImageVector.Builder(
+    name = "GoogleLogo",
+    defaultWidth = 18.dp,
+    defaultHeight = 18.dp,
+    viewportWidth = 48f,
+    viewportHeight = 48f
+).apply {
+    addPath(
+        pathData = addPathNodes("M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"),
+        fill = SolidColor(Color(0xFFEA4335))
+    )
+    addPath(
+        pathData = addPathNodes("M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"),
+        fill = SolidColor(Color(0xFF4285F4))
+    )
+    addPath(
+        pathData = addPathNodes("M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"),
+        fill = SolidColor(Color(0xFFFBBC05))
+    )
+    addPath(
+        pathData = addPathNodes("M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"),
+        fill = SolidColor(Color(0xFF34A853))
+    )
+}.build()
 
 private data class PeekItem(
     val name: String,
@@ -155,7 +145,8 @@ private val PEEKS = listOf(
     PeekItem("Theo", 1, 0.20f, 0.44f),
     PeekItem("Sofia", 1, 0.68f, 0.42f),
     PeekItem("Yuki", 2, 0.12f, 0.74f),
-    PeekItem("Leila", 2, 0.46f, 0.68f)
+    PeekItem("Leila", 2, 0.46f, 0.68f),
+    PeekItem("Noah", 2, 0.76f, 0.75f)
 )
 
 @Composable
@@ -164,6 +155,23 @@ fun SignInScreen(modifier: Modifier = Modifier) {
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current.density
+
+    fun runSignIn(signIn: suspend () -> Unit) {
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                signIn()
+            } catch (e: Exception) {
+                val msg = e.message
+                if (msg != null && !msg.contains("cancel", ignoreCase = true)) {
+                    error = msg
+                }
+            } finally {
+                busy = false
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -283,55 +291,29 @@ fun SignInScreen(modifier: Modifier = Modifier) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.White)
+                    .background(tintColor(parseHexColor(INTERVALS[2].color), 20))
                     .padding(horizontal = 24.dp, vertical = 20.dp)
                     .navigationBarsPadding()
             ) {
-                PixelButton(
-                    onClick = {
-                        busy = true
-                        error = null
-                        scope.launch {
-                            try {
-                                SpheresStore.signIn()
-                            } catch (e: Exception) {
-                                val msg = e.message
-                                if (msg != null && !msg.contains("cancel", ignoreCase = true)) {
-                                    error = msg
-                                }
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    },
-                    variant = ButtonVariant.PRIMARY,
-                    size = ButtonSize.LG,
-                    fullWidth = true,
-                    enabled = !busy
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                val appleLogo = remember { if (isAppleSignInSupported()) appleLogoBitmap() else null }
+                if (isAppleSignInSupported()) {
+                    SignInProviderButton(
+                        label = "Sign in with Apple",
+                        enabled = !busy,
+                        onClick = { runSignIn { SpheresStore.signInWithApple() } }
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(Color.White, shape = de.koenidv.spheres.ui.components.PxClipShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            PixelG()
+                        if (appleLogo != null) {
+                            Image(bitmap = appleLogo, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Sign in with Google",
-                            style = TextStyle(
-                                fontFamily = PixelFontFamily(),
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 20.sp,
-                                color = Color.White
-                            )
-                        )
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                SignInProviderButton(
+                    label = "Sign in with Google",
+                    enabled = !busy,
+                    onClick = { runSignIn { SpheresStore.signIn() } }
+                ) {
+                    Image(imageVector = GoogleLogo, contentDescription = null, modifier = Modifier.size(18.dp))
                 }
 
                 if (error != null) {
@@ -348,6 +330,46 @@ fun SignInScreen(modifier: Modifier = Modifier) {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SignInProviderButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    logo: @Composable () -> Unit,
+) {
+    PixelButton(
+        onClick = onClick,
+        variant = ButtonVariant.PRIMARY,
+        size = ButtonSize.LG,
+        fullWidth = true,
+        enabled = enabled
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(vertical = 4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(Color.White, shape = de.koenidv.spheres.ui.components.PxClipShape),
+                contentAlignment = Alignment.Center
+            ) {
+                logo()
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = label,
+                style = TextStyle(
+                    fontFamily = SansFontFamily(),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 18.sp,
+                    color = Color.White
+                )
+            )
         }
     }
 }

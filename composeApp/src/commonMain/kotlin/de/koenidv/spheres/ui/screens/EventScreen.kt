@@ -1,8 +1,10 @@
 package de.koenidv.spheres.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,21 +48,31 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.data.PaywallReason
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.DAY
+import de.koenidv.spheres.domain.EventLimitStatus
+import de.koenidv.spheres.domain.FREE_CONNECTIONS_LIMIT
 import de.koenidv.spheres.domain.Person
 import de.koenidv.spheres.domain.SocialEvent
-import de.koenidv.spheres.platform.currentTimeMillis
+import de.koenidv.spheres.domain.evaluateEventLimitStatus
+import de.koenidv.spheres.domain.eventGraceRemainingMs
 import de.koenidv.spheres.domain.formatDay
+import de.koenidv.spheres.domain.formatGraceRemaining
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.domain.parseQuickAdd
+import de.koenidv.spheres.domain.wasEventCreatedBeforeLimit
+import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.platform.haptic
 import de.koenidv.spheres.ui.components.ButtonVariant
 import de.koenidv.spheres.ui.components.EmptyState
+import de.koenidv.spheres.ui.components.rememberLiveNow
+import de.koenidv.spheres.ui.theme.Amber
+import de.koenidv.spheres.ui.theme.Coral
 import de.koenidv.spheres.ui.theme.FieldBg
 import de.koenidv.spheres.ui.components.IconName
-import de.koenidv.spheres.ui.components.PixelAvatar
+import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelIcon
 import de.koenidv.spheres.ui.components.PixelIconButton
@@ -68,6 +80,7 @@ import de.koenidv.spheres.ui.components.PixelPanel
 import de.koenidv.spheres.ui.components.PixelTextInput
 import de.koenidv.spheres.ui.components.PxClipShape
 import de.koenidv.spheres.ui.components.SpherePill
+import de.koenidv.spheres.ui.components.autoFocus
 import de.koenidv.spheres.ui.theme.DangerText
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Muted
@@ -132,8 +145,13 @@ fun EventScreen(
         return
     }
 
-    var isRenaming by remember { mutableStateOf(false) }
-    var renameDraft by remember(event.name) { mutableStateOf(event.name) }
+    val isJustCreated = remember(event.id) {
+        currentTimeMillis() - event.createdAt < 5000L && event.name.startsWith("Event · ")
+    }
+    var isRenaming by remember(event.id) { mutableStateOf(isJustCreated) }
+    var renameDraft by remember(event.id, event.name) {
+        mutableStateOf(if (isJustCreated) "" else event.name)
+    }
     var quickAddInput by remember { mutableStateOf("") }
 
     val eventColor = parseHexColor(event.color)
@@ -146,6 +164,21 @@ fun EventScreen(
     }
 
     val parsed = remember(quickAddInput) { parseQuickAdd(quickAddInput) }
+    val now = rememberLiveNow(intervalMs = 30_000L)
+    val limitStatus = remember(event, people, state.isUnlimited, now) {
+        evaluateEventLimitStatus(event, people, state.isUnlimited, now)
+    }
+    val graceRemainingMs = remember(event, people, now) {
+        eventGraceRemainingMs(event, people, now)
+    }
+    val createdBeforeLimit = remember(event, people) {
+        wasEventCreatedBeforeLimit(event, people)
+    }
+    val paywallReason = if (createdBeforeLimit) {
+        PaywallReason.EventGraceEnded(event.name)
+    } else {
+        PaywallReason.ConnectionsLimit
+    }
 
     Box(
         modifier = modifier
@@ -203,6 +236,23 @@ fun EventScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(Color.Transparent)
+                                    .autoFocus(delayMs = if (isJustCreated) 150L else 0L),
+                                decorationBox = { innerTextField ->
+                                    Box {
+                                        if (renameDraft.isEmpty()) {
+                                            Text(
+                                                text = event.name,
+                                                style = TextStyle(
+                                                    fontFamily = PixelFontFamily(),
+                                                    fontSize = 22.sp,
+                                                    lineHeight = 28.sp,
+                                                    color = Ink.copy(alpha = 0.35f)
+                                                )
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                }
                             )
                         } else {
                             Text(
@@ -257,18 +307,27 @@ fun EventScreen(
                     .background(Color.White)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
+                val isHardLimit = limitStatus == EventLimitStatus.HARD_LIMIT
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
                         .clip(PxClipShape)
                         .background(FieldBg)
+                        .then(
+                            if (isHardLimit) {
+                                Modifier.clickable {
+                                    SpheresStore.openSheet(SheetState.Paywall(reason = paywallReason))
+                                }
+                            } else Modifier
+                        )
                         .padding(start = 16.dp, end = 8.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     BasicTextField(
                         value = quickAddInput,
                         onValueChange = { quickAddInput = it },
+                        enabled = !isHardLimit,
                         textStyle = TextStyle(
                             fontFamily = SansFontFamily(),
                             fontSize = 18.sp,
@@ -279,10 +338,14 @@ fun EventScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(
                             onDone = {
-                                if (quickAddInput.isNotBlank()) {
+                                if (isHardLimit) {
+                                    SpheresStore.openSheet(SheetState.Paywall(reason = paywallReason))
+                                } else if (quickAddInput.isNotBlank()) {
                                     val added = SpheresStore.quickAddToEvent(event.id, quickAddInput)
-                                    if (added != null) haptic()
-                                    quickAddInput = ""
+                                    if (added != null) {
+                                        haptic()
+                                        quickAddInput = ""
+                                    }
                                 }
                             }
                         ),
@@ -292,7 +355,11 @@ fun EventScreen(
                         decorationBox = { innerTextField ->
                             if (quickAddInput.isEmpty()) {
                                 Text(
-                                    text = "Name, note… e.g. Anna, works at Spotify",
+                                    text = if (isHardLimit) {
+                                        "Unlock Unlimited to add more people…"
+                                    } else {
+                                        "Name, note… e.g. Anna, works at Spotify"
+                                    },
                                     style = TextStyle(
                                         fontFamily = SansFontFamily(),
                                         fontSize = 18.sp,
@@ -309,15 +376,31 @@ fun EventScreen(
                             .size(40.dp)
                             .align(Alignment.CenterEnd)
                             .clip(PxClipShape)
-                            .background(if (parsed.name.isNotBlank()) Ink else Ink.copy(alpha = 0.25f))
-                            .clickable(enabled = parsed.name.isNotBlank()) {
-                                val added = SpheresStore.quickAddToEvent(event.id, quickAddInput)
-                                if (added != null) haptic()
-                                quickAddInput = ""
+                            .background(
+                                when {
+                                    isHardLimit -> Coral
+                                    parsed.name.isNotBlank() -> Ink
+                                    else -> Ink.copy(alpha = 0.25f)
+                                }
+                            )
+                            .clickable(enabled = isHardLimit || parsed.name.isNotBlank()) {
+                                if (isHardLimit) {
+                                    SpheresStore.openSheet(SheetState.Paywall(reason = paywallReason))
+                                } else {
+                                    val added = SpheresStore.quickAddToEvent(event.id, quickAddInput)
+                                    if (added != null) {
+                                        haptic()
+                                        quickAddInput = ""
+                                    }
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        PixelIcon(name = IconName.PLUS, size = 22.dp, tint = Color.White)
+                        PixelIcon(
+                            name = if (isHardLimit) IconName.LOCK else IconName.PLUS,
+                            size = 20.dp,
+                            tint = Color.White
+                        )
                     }
                 }
 
@@ -327,7 +410,7 @@ fun EventScreen(
                         .padding(horizontal = 4.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (parsed.name.isNotBlank()) {
+                    if (parsed.name.isNotBlank() && !isHardLimit) {
                         Row(
                             modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically
@@ -356,7 +439,11 @@ fun EventScreen(
                         }
                     } else {
                         Text(
-                            text = "Press enter to add. Separate a note with a comma.",
+                            text = if (isHardLimit) {
+                                "Free limit of $FREE_CONNECTIONS_LIMIT connections reached."
+                            } else {
+                                "Press enter to add. Separate a note with a comma."
+                            },
                             style = TextStyle(
                                 fontFamily = SansFontFamily(),
                                 fontSize = 14.sp,
@@ -374,6 +461,138 @@ fun EventScreen(
                             color = Muted
                         )
                     )
+                }
+
+                AnimatedVisibility(
+                    visible = limitStatus != EventLimitStatus.OK,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    if (limitStatus == EventLimitStatus.GRACE_WARNING) {
+                        val remainingLabel = formatGraceRemaining(graceRemainingMs)
+                        PixelPanel(
+                            color = Amber,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+                            onClick = {
+                                SpheresStore.openSheet(SheetState.Paywall(reason = PaywallReason.ConnectionsLimit))
+                            }
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    PixelIcon(name = IconName.CLOCK, size = 16.dp, tint = Ink)
+                                    Text(
+                                        text = "EVENT FLOW PROTECTED · $remainingLabel",
+                                        style = TextStyle(
+                                            fontFamily = PixelFontFamily(),
+                                            fontSize = 13.sp,
+                                            color = Ink
+                                        ),
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(PxClipShape)
+                                            .background(Ink)
+                                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Unlock · ${state.unlimitedPrice}",
+                                            style = TextStyle(
+                                                fontFamily = PixelFontFamily(),
+                                                fontSize = 12.sp,
+                                                color = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "You've passed $FREE_CONNECTIONS_LIMIT connections — keep adding people freely for ${remainingLabel.removeSuffix(" left")} without interrupting your event.",
+                                    style = TextStyle(
+                                        fontFamily = SansFontFamily(),
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        color = Ink.copy(alpha = 0.78f)
+                                    )
+                                )
+                            }
+                        }
+                    } else if (limitStatus == EventLimitStatus.HARD_LIMIT) {
+                        PixelPanel(
+                            color = Coral,
+                            raised = true,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+                            onClick = {
+                                SpheresStore.openSheet(SheetState.Paywall(reason = paywallReason))
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(PxClipShape)
+                                        .background(Color.White),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    PixelIcon(name = IconName.LOCK, size = 20.dp, tint = Coral)
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (createdBeforeLimit) {
+                                            "24-hour event flow ended"
+                                        } else {
+                                            "Free limit reached (${people.size}/$FREE_CONNECTIONS_LIMIT)"
+                                        },
+                                        style = TextStyle(
+                                            fontFamily = PixelFontFamily(),
+                                            fontSize = 16.sp,
+                                            color = Ink
+                                        )
+                                    )
+                                    Text(
+                                        text = "Unlock Unlimited once (${state.unlimitedPrice}) to keep adding everyone you meet.",
+                                        style = TextStyle(
+                                            fontFamily = SansFontFamily(),
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp,
+                                            color = Ink.copy(alpha = 0.72f)
+                                        )
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .clip(PxClipShape)
+                                        .background(Ink)
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    PixelIcon(name = IconName.SPARKLE, size = 14.dp, tint = Color.White)
+                                    Text(
+                                        text = "Unlock",
+                                        style = TextStyle(
+                                            fontFamily = PixelFontFamily(),
+                                            fontSize = 13.sp,
+                                            color = Color.White
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -442,8 +661,8 @@ private fun EventRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    PixelAvatar(
-                        name = person.name,
+                    PersonAvatar(
+                        person = person,
                         colorHex = info.color,
                         size = 36.dp
                     )

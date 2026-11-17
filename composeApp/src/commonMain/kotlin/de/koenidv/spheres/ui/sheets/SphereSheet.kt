@@ -33,6 +33,7 @@ import de.koenidv.spheres.ui.components.IconName
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelTextArea
 import de.koenidv.spheres.ui.components.PixelTextInput
+import de.koenidv.spheres.ui.components.autoFocus
 import de.koenidv.spheres.ui.components.PxClipShape
 import de.koenidv.spheres.ui.theme.parseHexColor
 import kotlinx.coroutines.delay
@@ -94,7 +95,8 @@ fun SphereSheet(
         PixelTextInput(
             value = name,
             onValueChange = { name = it },
-            placeholder = "Sphere name"
+            placeholder = "Sphere name",
+            modifier = Modifier.autoFocus(enabled = existing == null)
         )
 
         Field(label = "Color") {

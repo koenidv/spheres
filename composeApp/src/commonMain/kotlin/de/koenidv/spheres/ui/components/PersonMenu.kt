@@ -40,6 +40,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.domain.AvatarConfig
 import de.koenidv.spheres.platform.PlatformBackHandler
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Muted
@@ -62,6 +63,8 @@ fun PersonMenu(
     target: PersonMenuTarget?,
     personName: String,
     colorHex: String,
+    avatar: AvatarConfig? = null,
+    photoUrl: String? = null,
     onClose: () -> Unit,
     onCheckIn: (String) -> Unit,
     onLogInteraction: (String) -> Unit,
@@ -73,11 +76,15 @@ fun PersonMenu(
     var activeTarget by remember { mutableStateOf(target) }
     var activeName by remember { mutableStateOf(personName) }
     var activeColor by remember { mutableStateOf(colorHex) }
+    var activeAvatar by remember { mutableStateOf(avatar) }
+    var activePhotoUrl by remember { mutableStateOf(photoUrl) }
 
     if (target != null) {
         activeTarget = target
         activeName = personName
         activeColor = colorHex
+        activeAvatar = avatar
+        activePhotoUrl = photoUrl
     }
 
     PlatformBackHandler(enabled = target != null, onBack = onClose)
@@ -147,9 +154,11 @@ fun PersonMenu(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    PixelAvatar(
+                    AvatarRender(
                         name = activeName,
                         colorHex = activeColor,
+                        config = activeAvatar,
+                        photoUrl = activePhotoUrl,
                         size = RADAR_AVATAR_SIZE
                     )
                 }

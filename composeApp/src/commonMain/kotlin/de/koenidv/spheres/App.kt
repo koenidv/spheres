@@ -69,8 +69,10 @@ import de.koenidv.spheres.ui.components.RadarSkeleton
 import de.koenidv.spheres.ui.components.SteppedPolygonShape
 import de.koenidv.spheres.ui.components.ToastHost
 import de.koenidv.spheres.ui.components.ToastMessage
+import de.koenidv.spheres.ui.components.rememberLiveNow
 import de.koenidv.spheres.ui.screens.DueScreen
 import de.koenidv.spheres.ui.screens.EventScreen
+import de.koenidv.spheres.ui.screens.PeopleScreen
 import de.koenidv.spheres.ui.screens.PersonScreen
 import de.koenidv.spheres.ui.screens.RadarScreen
 import de.koenidv.spheres.ui.screens.SettingsScreen
@@ -313,9 +315,9 @@ private fun Shell() {
         else -> null
     }
 
-    val overdueCount = remember(state.people, state.entries) {
+    val now = rememberLiveNow()
+    val overdueCount = remember(state.people, state.entries, now) {
         val by = entriesByPerson(state.entries)
-        val now = currentTimeMillis()
         state.people.count { p ->
             dueInfo(p, by[p.id], now)?.status == DueStatus.OVERDUE
         }
@@ -329,7 +331,6 @@ private fun Shell() {
     ) {
         Box(
             modifier = Modifier
-                .widthIn(max = 480.dp)
                 .fillMaxSize()
         ) {
             if (state.dataReady) {
@@ -484,6 +485,7 @@ private fun Shell() {
                             loc == "/" -> RadarScreen(onNavigate = navigate)
                             loc == "/due" -> DueScreen(onNavigate = navigate)
                             loc == "/spheres" -> SpheresScreen(onNavigate = navigate)
+                            loc == "/people" -> PeopleScreen(onNavigate = navigate)
                             loc == "/settings" -> SettingsScreen(onNavigate = navigate)
                             loc.startsWith("/spheres/") -> SphereScreen(
                                 id = loc.removePrefix("/spheres/"),

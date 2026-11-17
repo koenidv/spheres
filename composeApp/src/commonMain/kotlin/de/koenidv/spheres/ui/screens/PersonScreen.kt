@@ -11,6 +11,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -48,10 +49,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,6 +87,7 @@ import de.koenidv.spheres.domain.relativeDays
 import de.koenidv.spheres.domain.sphereIdsViaEvents
 import de.koenidv.spheres.platform.openExternalUrl
 import de.koenidv.spheres.platform.randomUuid
+import de.koenidv.spheres.ui.components.AnchoredPopupMenu
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.ButtonVariant
 import de.koenidv.spheres.ui.components.Card
@@ -90,14 +97,18 @@ import de.koenidv.spheres.ui.components.EmptyState
 import de.koenidv.spheres.ui.theme.FieldBg
 import de.koenidv.spheres.ui.components.IconName
 import de.koenidv.spheres.ui.theme.Line
-import de.koenidv.spheres.ui.components.PixelAvatar
+import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelIcon
 import de.koenidv.spheres.ui.components.PixelIconButton
 import de.koenidv.spheres.ui.components.PixelTextArea
 import de.koenidv.spheres.ui.components.PixelTextInput
+import de.koenidv.spheres.ui.components.PopupAnchor
+import de.koenidv.spheres.ui.components.PopupMenuOption
 import de.koenidv.spheres.ui.components.PxClipShape
 import de.koenidv.spheres.ui.components.SpherePill
+import de.koenidv.spheres.ui.components.autoFocus
+import de.koenidv.spheres.ui.components.rememberLiveNow
 import kotlin.math.abs
 import de.koenidv.spheres.ui.theme.Coral
 import de.koenidv.spheres.ui.theme.DangerText
@@ -201,8 +212,10 @@ fun PersonScreen(
     }
 
     var isRenaming by remember { mutableStateOf(false) }
-    var renameDraft by remember(person.name) { mutableStateOf(person.name) }
-    var editInterval by remember { mutableStateOf(false) }
+    var renameDraft by remember(person.name) {
+        mutableStateOf(TextFieldValue(person.name, TextRange(person.name.length)))
+    }
+    var intervalMenuAnchor by remember { mutableStateOf<PopupAnchor?>(null) }
     var pickSpheres by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
 
@@ -220,8 +233,9 @@ fun PersonScreen(
     val info = intervalInfo(person.intervalDays)
     val accentColor = parseHexColor(info.color)
 
-    val due = remember(person, entries) { dueInfo(person, entries) }
-    val score = remember(person, entries) { contactScore(person, entries) }
+    val now = rememberLiveNow()
+    val due = remember(person, entries, now) { dueInfo(person, entries, now) }
+    val score = remember(person, entries, now) { contactScore(person, entries, now) }
     val rq = remember(entries) { relationshipQuality(entries) }
     val viaEvents = remember(person, events) { sphereIdsViaEvents(person, events) }
     val mineSpheres = remember(spheres, person.sphereIds, viaEvents) {
@@ -269,7 +283,7 @@ fun PersonScreen(
                     PixelIconButton(
                         icon = IconName.EDIT,
                         onClick = {
-                            renameDraft = person.name
+                            renameDraft = TextFieldValue(person.name, TextRange(person.name.length))
                             isRenaming = true
                         }
                     )
@@ -285,15 +299,40 @@ fun PersonScreen(
                 Box(
                     modifier = Modifier
                         .offset(y = (-48).dp)
-                        .background(Color.White)
-                        .border(2.dp, accentColor)
-                        .padding(4.dp)
                 ) {
-                    PixelAvatar(
-                        name = person.name,
-                        colorHex = info.color,
-                        size = 96.dp
-                    )
+                    Box(
+                        modifier = Modifier
+                            .background(Color.White)
+                            .border(2.dp, accentColor)
+                            .clickable {
+                                SpheresStore.openSheet(SheetState.AvatarEdit(person.id))
+                            }
+                            .padding(4.dp)
+                    ) {
+                        PersonAvatar(
+                            person = person,
+                            colorHex = info.color,
+                            size = 96.dp
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 6.dp, y = 6.dp)
+                            .size(22.dp)
+                            .background(Color.White)
+                            .border(1.5.dp, accentColor)
+                            .clickable {
+                                SpheresStore.openSheet(SheetState.AvatarEdit(person.id))
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        PixelIcon(
+                            name = IconName.EDIT,
+                            size = 12.dp,
+                            tint = accentColor
+                        )
+                    }
                 }
 
                 if (isRenaming) {
@@ -312,7 +351,7 @@ fun PersonScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(
                             onDone = {
-                                val v = renameDraft.trim()
+                                val v = renameDraft.text.trim()
                                 if (v.isNotBlank() && v != person.name) {
                                     SpheresStore.updatePerson(person.id) { it.copy(name = v) }
                                 }
@@ -323,6 +362,7 @@ fun PersonScreen(
                             .offset(y = (-36).dp)
                             .fillMaxWidth(0.8f)
                             .background(Color.Transparent)
+                            .autoFocus(delayMs = 0L)
                     )
                 } else {
                     Text(
@@ -338,7 +378,7 @@ fun PersonScreen(
                         modifier = Modifier
                             .offset(y = (-36).dp)
                             .clickable {
-                                renameDraft = person.name
+                                renameDraft = TextFieldValue(person.name, TextRange(person.name.length))
                                 isRenaming = true
                             }
                     )
@@ -351,30 +391,27 @@ fun PersonScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     CityLine(person = person)
-                    SpherePill(
-                        label = info.label,
-                        color = accentColor,
-                        onClick = if (tracked) { { editInterval = !editInterval } } else null
-                    )
-                }
-
-                AnimatedVisibility(
-                    visible = editInterval && tracked,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically(),
-                    modifier = Modifier.offset(y = (-20).dp)
-                ) {
-                    OptInIntervalChips(
-                        selectedDays = person.intervalDays,
-                        onChange = { d ->
-                            if (d == null) {
-                                SpheresStore.updatePerson(person.id) { it.copy(intervalDays = null) }
-                            } else {
-                                SpheresStore.keepInTouch(person.id, d)
+                    var intervalPillCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+                    Box(
+                        modifier = Modifier.onGloballyPositioned { intervalPillCoords = it }
+                    ) {
+                        SpherePill(
+                            label = info.label,
+                            color = accentColor,
+                            onClick = {
+                                val b = intervalPillCoords?.boundsInWindow()
+                                if (b != null) {
+                                    intervalMenuAnchor = PopupAnchor(
+                                        anchorX = b.left,
+                                        anchorY = b.top,
+                                        anchorWidth = b.width,
+                                        anchorHeight = b.height,
+                                        centerHorizontally = true
+                                    )
+                                }
                             }
-                            editInterval = false
-                        }
-                    )
+                        )
+                    }
                 }
 
                 Row(
@@ -663,6 +700,37 @@ fun PersonScreen(
                 }
             }
         }
+
+        val intervalOptions = INTERVALS.map { spec ->
+            PopupMenuOption(
+                key = spec.days.toString(),
+                label = spec.label,
+                color = parseHexColor(spec.color),
+                selected = person.intervalDays == spec.days
+            )
+        } + PopupMenuOption(
+            key = null,
+            label = "Not tracked",
+            color = parseHexColor("#8a8a8a"),
+            icon = IconName.MINUS,
+            selected = person.intervalDays == null
+        )
+
+        AnchoredPopupMenu(
+            anchor = intervalMenuAnchor,
+            title = "Interval",
+            options = intervalOptions,
+            onSelect = { key ->
+                val days = key?.toIntOrNull()
+                if (days == null) {
+                    SpheresStore.updatePerson(person.id) { it.copy(intervalDays = null) }
+                } else {
+                    SpheresStore.keepInTouch(person.id, days)
+                }
+                intervalMenuAnchor = null
+            },
+            onClose = { intervalMenuAnchor = null }
+        )
     }
 }
 
@@ -783,6 +851,7 @@ private fun CityLine(person: Person) {
             modifier = Modifier
                 .width(140.dp)
                 .background(Color.Transparent)
+                .autoFocus(delayMs = 0L)
         )
     } else {
         Row(
@@ -834,7 +903,9 @@ private fun ScoreBar(score: Int, color: Color) {
 @Composable
 private fun OptInIntervalChips(selectedDays: Int?, onChange: (Int?) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         for (i in INTERVALS) {
@@ -1222,7 +1293,8 @@ private fun DetailsCard(person: Person) {
                     PixelTextInput(
                         value = factValue,
                         onValueChange = { factValue = it },
-                        placeholder = "Value"
+                        placeholder = "Value",
+                        modifier = Modifier.autoFocus(delayMs = 0L)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PixelButton(

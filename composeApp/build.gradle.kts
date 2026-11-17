@@ -1,3 +1,9 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -6,6 +12,44 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+}
+
+abstract class GenerateBuildFlagsTask : DefaultTask() {
+    @get:Input
+    abstract val paywallEnabled: Property<Boolean>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val dir = outputDir.get().asFile.resolve("de/koenidv/spheres")
+        dir.mkdirs()
+        dir.resolve("BuildFlags.kt").writeText(
+            """
+            package de.koenidv.spheres
+
+            object BuildFlags {
+                const val PAYWALL_ENABLED: Boolean = ${paywallEnabled.get()}
+            }
+            """.trimIndent() + "\n"
+        )
+    }
+}
+
+val generateBuildFlags = tasks.register<GenerateBuildFlagsTask>("generateBuildFlags") {
+    val gradleProp = providers.gradleProperty("spheres.paywallEnabled").orElse("true")
+    val envProp = providers.environmentVariable("PAYWALL_ENABLED").orElse("")
+    paywallEnabled.set(
+        gradleProp.zip(envProp) { g, e ->
+            fun isEnabled(v: String): Boolean {
+                val norm = v.trim().lowercase()
+                return norm != "false" && norm != "0" && norm != "no"
+            }
+            isEnabled(g) && (e.isBlank() || isEnabled(e))
+        }
+    )
+    outputDir.set(layout.buildDirectory.dir("generated/source/buildFlags/commonMain/kotlin"))
 }
 
 kotlin {
@@ -26,6 +70,9 @@ kotlin {
     }
     
     sourceSets {
+        commonMain {
+            kotlin.srcDir(generateBuildFlags)
+        }
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
@@ -33,6 +80,7 @@ kotlin {
             implementation(libs.androidx.credentials)
             implementation(libs.androidx.credentials.play.services.auth)
             implementation(libs.googleid)
+            implementation(libs.play.billing)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -64,10 +112,10 @@ android {
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "de.koenidv.spheres"
+        applicationId = "dev.koeni.spheres"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
+        versionCode = 1004
         versionName = "1.0"
     }
     packaging {

@@ -52,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.domain.AvatarConfig
+import de.koenidv.spheres.domain.INTERVALS
 import de.koenidv.spheres.domain.Quality
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.PixelFontFamily
@@ -190,7 +192,9 @@ data class RadarPerson(
     val intervalDays: Int,
     val score: Int,
     val status: DueStatus,
-    val quality: Quality? = null
+    val quality: Quality? = null,
+    val avatar: AvatarConfig? = null,
+    val photoUrl: String? = null,
 )
 
 data class RadarInterval(
@@ -199,13 +203,7 @@ data class RadarInterval(
     val colorHex: String
 )
 
-val DEFAULT_RADAR_INTERVALS = listOf(
-    RadarInterval(7, "Weekly", "#eb78b0"),
-    RadarInterval(14, "2 Weekly", "#e36f73"),
-    RadarInterval(30, "Monthly", "#9d7ce7"),
-    RadarInterval(90, "Quarterly", "#5b9cf0"),
-    RadarInterval(365, "Yearly", "#3fbf9f")
-)
+val DEFAULT_RADAR_INTERVALS = INTERVALS.map { RadarInterval(it.days, it.label, it.color) }
 
 fun firstName(name: String): String = name.trim().split("\\s+".toRegex()).firstOrNull() ?: name
 
@@ -444,9 +442,11 @@ fun Radar(
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Box(modifier = Modifier.size(RADAR_AVATAR_SIZE)) {
                                             Box(modifier = Modifier.offset(y = pressOffset)) {
-                                                PixelAvatar(
+                                                AvatarRender(
                                                     name = person.name,
                                                     colorHex = band.colorHex,
+                                                    config = person.avatar,
+                                                    photoUrl = person.photoUrl,
                                                     size = RADAR_AVATAR_SIZE
                                                 )
                                                 if (person.status != DueStatus.OK) {

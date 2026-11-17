@@ -21,6 +21,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,14 +31,20 @@ import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.data.LogMode
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
+import de.koenidv.spheres.domain.FREE_CONNECTIONS_LIMIT
+import de.koenidv.spheres.domain.FREE_SPHERES_LIMIT
 import de.koenidv.spheres.domain.contactScore
 import de.koenidv.spheres.domain.entriesByPerson
 import de.koenidv.spheres.domain.firstName
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.ui.components.IconName
-import de.koenidv.spheres.ui.components.PixelAvatar
+import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelIcon
 import de.koenidv.spheres.ui.components.PixelPanel
+import de.koenidv.spheres.ui.components.PxClipShape
+import de.koenidv.spheres.ui.theme.Amber
+import de.koenidv.spheres.ui.theme.DangerText
+import de.koenidv.spheres.ui.theme.FieldBg
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Line
 import de.koenidv.spheres.ui.theme.MonthlyPurple
@@ -44,6 +52,7 @@ import de.koenidv.spheres.ui.theme.Muted
 import de.koenidv.spheres.ui.theme.PixelFontFamily
 import de.koenidv.spheres.ui.theme.SansFontFamily
 import de.koenidv.spheres.ui.theme.WeeklyPink
+import de.koenidv.spheres.ui.theme.tintColor
 
 @Composable
 fun ActionSheet(
@@ -183,8 +192,8 @@ fun ActionSheet(
                             .padding(vertical = 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        PixelAvatar(
-                            name = person.name,
+                        PersonAvatar(
+                            person = person,
                             colorHex = intervalInfo(person.intervalDays).color,
                             size = 48.dp
                         )
@@ -217,12 +226,16 @@ fun ActionSheet(
         ActionRow(
             icon = IconName.USER,
             label = "Add connection",
+            badge = if (!state.isUnlimited) "${people.size}/$FREE_CONNECTIONS_LIMIT" else null,
+            badgeAlert = !state.isUnlimited && people.size >= FREE_CONNECTIONS_LIMIT,
             onClick = { SpheresStore.openSheet(SheetState.AddPerson()) }
         )
 
         ActionRow(
             icon = IconName.USERS,
             label = "Create sphere",
+            badge = if (!state.isUnlimited) "${state.spheres.size}/$FREE_SPHERES_LIMIT" else null,
+            badgeAlert = !state.isUnlimited && state.spheres.size >= FREE_SPHERES_LIMIT,
             onClick = { SpheresStore.openSheet(SheetState.SphereEdit(null)) }
         )
 
@@ -267,6 +280,8 @@ fun ActionSheet(
 private fun ActionRow(
     icon: IconName,
     label: String,
+    badge: String? = null,
+    badgeAlert: Boolean = false,
     onClick: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -289,6 +304,24 @@ private fun ActionRow(
                 ),
                 modifier = Modifier.weight(1f)
             )
+            if (badge != null) {
+                Box(
+                    modifier = Modifier
+                        .clip(PxClipShape)
+                        .background(if (badgeAlert) tintColor(Amber, 35) else FieldBg)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = badge,
+                        style = TextStyle(
+                            fontFamily = PixelFontFamily(),
+                            fontSize = 12.sp,
+                            color = if (badgeAlert) Ink else Muted
+                        )
+                    )
+                }
+            }
             PixelIcon(
                 name = IconName.CHEVRON_RIGHT,
                 size = 20.dp,

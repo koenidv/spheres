@@ -48,6 +48,7 @@ import de.koenidv.spheres.ui.components.PxClipShape
 import de.koenidv.spheres.domain.Quality
 import de.koenidv.spheres.ui.components.Radar
 import de.koenidv.spheres.ui.components.RadarPerson
+import de.koenidv.spheres.ui.components.rememberLiveNow
 import de.koenidv.spheres.ui.components.ScreenHeader
 import de.koenidv.spheres.ui.theme.FieldBg
 import de.koenidv.spheres.ui.theme.Ink
@@ -80,12 +81,13 @@ fun RadarScreen(
     }
 
     val byPerson = remember(entries) { entriesByPerson(entries) }
+    val now = rememberLiveNow()
 
-    val radarPeople = remember(shownPeople, byPerson) {
+    val radarPeople = remember(shownPeople, byPerson, now) {
         shownPeople.map { p ->
             val pEntries = byPerson[p.id]
-            val cs = contactScore(p, pEntries)?.score ?: 100
-            val di = dueInfo(p, pEntries)
+            val cs = contactScore(p, pEntries, now)?.score ?: 100
+            val di = dueInfo(p, pEntries, now)
             val st = when (di?.status) {
                 de.koenidv.spheres.domain.DueStatus.OVERDUE -> DueStatus.OVERDUE
                 de.koenidv.spheres.domain.DueStatus.SOON -> DueStatus.SOON
@@ -105,7 +107,9 @@ fun RadarScreen(
                 intervalDays = p.intervalDays ?: 30,
                 score = cs,
                 status = st,
-                quality = q
+                quality = q,
+                avatar = p.avatar,
+                photoUrl = p.photoUrl
             )
         }
     }
@@ -229,6 +233,8 @@ fun RadarScreen(
             target = menuTarget,
             personName = targetPerson?.name ?: "",
             colorHex = targetPersonColor,
+            avatar = targetPerson?.avatar,
+            photoUrl = targetPerson?.photoUrl,
             onClose = { menuTarget = null },
             onCheckIn = { id ->
                 SpheresStore.quickCheckIn(id)
