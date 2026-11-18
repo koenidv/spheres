@@ -5,6 +5,7 @@ import ComposeApp
 @main
 struct iOSApp: App {
     init() {
+        IosPostHogInitializer.shared.setup()
         IosStoreKit2Bridge.shared.registerEntitlementChecker { productId in
             Task {
                 await Self.refreshEntitlement(productId: productId)

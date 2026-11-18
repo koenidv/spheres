@@ -1119,3 +1119,15 @@ actual object PlatformBilling {
         }
     }
 }
+
+object IosPostHogInitializer {
+    fun setup() {
+        val config = com.posthog.kmp.PostHogConfig(
+            projectToken = PostHogConstants.API_KEY,
+            host = PostHogConstants.HOST,
+            captureApplicationLifecycleEvents = true,
+            captureScreenViews = false,
+        )
+        com.posthog.kmp.PostHog.setup(config, com.posthog.kmp.PostHogContext())
+    }
+}

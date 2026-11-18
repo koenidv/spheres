@@ -97,6 +97,7 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.datetime)
+            implementation(libs.posthog.kmp)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
@@ -115,8 +116,8 @@ android {
         applicationId = "dev.koeni.spheres"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1004
-        versionName = "1.0"
+        versionCode = 1005
+        versionName = "1.1"
     }
     packaging {
         resources {

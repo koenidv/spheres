@@ -34,6 +34,7 @@ import de.koenidv.spheres.domain.toEntryKind
 import de.koenidv.spheres.domain.wasEventCreatedBeforeLimit
 import de.koenidv.spheres.platform.NotificationActionBridge
 import de.koenidv.spheres.platform.NotificationActionType
+import de.koenidv.spheres.platform.PlatformAnalytics
 import de.koenidv.spheres.platform.PlatformBilling
 import de.koenidv.spheres.platform.PlatformNotifications
 import de.koenidv.spheres.platform.PlatformPhoneIntegration
@@ -191,6 +192,7 @@ object SpheresStore {
                 val user = json.decodeFromString<AppUser>(userStr)
                 if (user.uid != "default_user" && !user.idToken.isNullOrBlank()) {
                     _state.update { it.copy(user = user, authReady = true) }
+                    PlatformAnalytics.identify(user.uid)
                     loadCachedDataForUser(user.uid)
                     scope.launch { syncRemote(user.uid) }
                     return
@@ -398,6 +400,8 @@ object SpheresStore {
     private fun completeSignIn(user: AppUser) {
         PlatformStorage.putString("auth_user", json.encodeToString(user))
         _state.update { it.copy(user = user, authReady = true) }
+        PlatformAnalytics.identify(user.uid)
+        PlatformAnalytics.capture("user_signed_in")
         loadCachedDataForUser(user.uid)
         scope.launch { syncRemote(user.uid) }
     }
@@ -434,6 +438,8 @@ object SpheresStore {
             )
         }
         PlatformNotifications.syncSchedule(emptyList(), 0)
+        PlatformAnalytics.capture("user_signed_out")
+        PlatformAnalytics.reset()
     }
 
     fun openSheet(sheet: SheetState?) {
@@ -1059,6 +1065,10 @@ object SpheresStore {
         if (!kind.isNote && person?.followUpAt != null && person.followUpAt <= t + DAY) {
             updatePerson(person.id) { it.copy(followUpAt = null) }
         }
+        PlatformAnalytics.capture(
+            event = "checkin_logged",
+            properties = mapOf("kind" to kind.name.lowercase())
+        )
         return id
     }
 
@@ -1203,6 +1213,10 @@ object SpheresStore {
         val active = enabled && PlatformPhoneIntegration.isSupported() && PlatformPhoneIntegration.isGranted()
         PlatformStorage.putString("phone_integration_enabled", if (active) "true" else "false")
         _state.update { it.copy(phoneIntegrationEnabled = active) }
+        PlatformAnalytics.capture(
+            event = "phone_integration_toggled",
+            properties = mapOf("enabled" to active)
+        )
         if (active) {
             if (PlatformStorage.getString("phone_integration_last_sync_at") == null) {
                 PlatformStorage.putString(

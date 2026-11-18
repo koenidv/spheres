@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -60,6 +61,7 @@ import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.DueStatus
 import de.koenidv.spheres.domain.dueInfo
 import de.koenidv.spheres.domain.entriesByPerson
+import de.koenidv.spheres.platform.PlatformAnalytics
 import de.koenidv.spheres.platform.PlatformBackHandler
 import de.koenidv.spheres.platform.StatusBarEffect
 import de.koenidv.spheres.platform.currentTimeMillis
@@ -72,6 +74,7 @@ import de.koenidv.spheres.ui.components.ToastMessage
 import de.koenidv.spheres.ui.components.rememberLiveNow
 import de.koenidv.spheres.ui.screens.DueScreen
 import de.koenidv.spheres.ui.screens.EventScreen
+import de.koenidv.spheres.ui.screens.MapScreen
 import de.koenidv.spheres.ui.screens.PeopleScreen
 import de.koenidv.spheres.ui.screens.PersonScreen
 import de.koenidv.spheres.ui.screens.RadarScreen
@@ -85,7 +88,7 @@ import de.koenidv.spheres.ui.theme.SpheresTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-private val TABS = listOf("/", "/due", "/spheres", "/settings")
+private val TABS = listOf("/", "/due", "/spheres", "/map")
 
 private fun depth(path: String): Int =
     if (path in TABS) 0 else path.split("/").filter { it.isNotEmpty() }.size
@@ -272,6 +275,21 @@ private fun Shell() {
     val backStack = remember { mutableStateListOf("/") }
     var lastNavDir by remember { mutableStateOf(NavDir(NavKind.TAB, 1)) }
 
+    LaunchedEffect(currentPath) {
+        val screenName = when {
+            currentPath == "/" -> "radar"
+            currentPath.startsWith("/due") -> "due"
+            currentPath.startsWith("/spheres") -> "spheres"
+            currentPath == "/map" -> "map"
+            currentPath == "/settings" -> "settings"
+            currentPath.startsWith("/person/") -> "person"
+            currentPath.startsWith("/sphere/") -> "sphere"
+            currentPath.startsWith("/event/") -> "event"
+            else -> currentPath.trimStart('/').substringBefore('/').ifBlank { "unknown" }
+        }
+        PlatformAnalytics.screen(screenName)
+    }
+
     val pop: () -> Unit = {
         lastNavDir = NavDir(NavKind.POP, -1)
         if (backStack.size > 1) {
@@ -311,7 +329,8 @@ private fun Shell() {
         currentPath == "/" -> BottomNavTab.RADAR
         currentPath.startsWith("/due") -> BottomNavTab.DUE
         currentPath.startsWith("/spheres") -> BottomNavTab.SPHERES
-        currentPath.startsWith("/settings") -> BottomNavTab.SETTINGS
+        currentPath == "/map" -> BottomNavTab.MAP
+        currentPath == "/settings" -> BottomNavTab.RADAR
         else -> null
     }
 
@@ -486,6 +505,7 @@ private fun Shell() {
                             loc == "/due" -> DueScreen(onNavigate = navigate)
                             loc == "/spheres" -> SpheresScreen(onNavigate = navigate)
                             loc == "/people" -> PeopleScreen(onNavigate = navigate)
+                            loc == "/map" -> MapScreen(onNavigate = navigate)
                             loc == "/settings" -> SettingsScreen(onNavigate = navigate)
                             loc.startsWith("/spheres/") -> SphereScreen(
                                 id = loc.removePrefix("/spheres/"),
@@ -526,7 +546,7 @@ private fun Shell() {
                         BottomNavTab.RADAR -> "/"
                         BottomNavTab.DUE -> "/due"
                         BottomNavTab.SPHERES -> "/spheres"
-                        BottomNavTab.SETTINGS -> "/settings"
+                        BottomNavTab.MAP -> "/map"
                     }
                     if (currentPath != route) {
                         lastNavDir = if (depth(currentPath) > 0) {

@@ -187,3 +187,35 @@ data class UnlinkedCallPrompt(
     val durationMinutes: Long,
     val callStartedAt: Long,
 )
+
+object PostHogConstants {
+    const val API_KEY: String = "phc_vQHABLdS6yd3pMEtFDJi9sbSKdBr9B4aYqdLvUVNRjFu"
+    const val HOST: String = "https://us.i.posthog.com"
+}
+
+object PlatformAnalytics {
+    fun capture(event: String, properties: Map<String, Any> = emptyMap()) {
+        com.posthog.kmp.PostHog.capture(
+            event = event,
+            properties = properties.ifEmpty { null }
+        )
+    }
+
+    fun screen(screenTitle: String, properties: Map<String, Any> = emptyMap()) {
+        com.posthog.kmp.PostHog.screen(
+            screenName = screenTitle,
+            properties = properties.ifEmpty { null }
+        )
+    }
+
+    fun identify(distinctId: String, userProperties: Map<String, Any> = emptyMap()) {
+        com.posthog.kmp.PostHog.identify(
+            distinctId = distinctId,
+            userProperties = userProperties.ifEmpty { null }
+        )
+    }
+
+    fun reset() {
+        com.posthog.kmp.PostHog.reset()
+    }
+}
