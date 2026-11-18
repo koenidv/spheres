@@ -1,11 +1,18 @@
 package de.koenidv.spheres.ui.screens
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -41,8 +48,10 @@ import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.INTERVALS
 import de.koenidv.spheres.platform.appleLogoBitmap
@@ -149,15 +158,18 @@ private val PEEKS = listOf(
     PeekItem("Noah", 2, 0.76f, 0.75f)
 )
 
+private enum class SignInProvider { APPLE, GOOGLE }
+
 @Composable
 fun SignInScreen(modifier: Modifier = Modifier) {
-    var busy by remember { mutableStateOf(false) }
+    var busyProvider by remember { mutableStateOf<SignInProvider?>(null) }
+    val busy = busyProvider != null
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current.density
 
-    fun runSignIn(signIn: suspend () -> Unit) {
-        busy = true
+    fun runSignIn(provider: SignInProvider, signIn: suspend () -> Unit) {
+        busyProvider = provider
         error = null
         scope.launch {
             try {
@@ -168,7 +180,7 @@ fun SignInScreen(modifier: Modifier = Modifier) {
                     error = msg
                 }
             } finally {
-                busy = false
+                busyProvider = null
             }
         }
     }
@@ -300,7 +312,8 @@ fun SignInScreen(modifier: Modifier = Modifier) {
                     SignInProviderButton(
                         label = "Sign in with Apple",
                         enabled = !busy,
-                        onClick = { runSignIn { SpheresStore.signInWithApple() } }
+                        loading = busyProvider == SignInProvider.APPLE,
+                        onClick = { runSignIn(SignInProvider.APPLE) { SpheresStore.signInWithApple() } }
                     ) {
                         if (appleLogo != null) {
                             Image(bitmap = appleLogo, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -311,7 +324,8 @@ fun SignInScreen(modifier: Modifier = Modifier) {
                 SignInProviderButton(
                     label = "Sign in with Google",
                     enabled = !busy,
-                    onClick = { runSignIn { SpheresStore.signIn() } }
+                    loading = busyProvider == SignInProvider.GOOGLE,
+                    onClick = { runSignIn(SignInProvider.GOOGLE) { SpheresStore.signIn() } }
                 ) {
                     Image(imageVector = GoogleLogo, contentDescription = null, modifier = Modifier.size(18.dp))
                 }
@@ -338,6 +352,7 @@ fun SignInScreen(modifier: Modifier = Modifier) {
 private fun SignInProviderButton(
     label: String,
     enabled: Boolean,
+    loading: Boolean = false,
     onClick: () -> Unit,
     logo: @Composable () -> Unit,
 ) {
@@ -348,27 +363,81 @@ private fun SignInProviderButton(
         fullWidth = true,
         enabled = enabled
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(vertical = 4.dp)
-        ) {
+        if (loading) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(vertical = 4.dp)
+            ) {
+                SignInLoadingDots()
+                Text(
+                    text = "Signing in…",
+                    style = TextStyle(
+                        fontFamily = SansFontFamily(),
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 18.sp,
+                        color = Color.White
+                    )
+                )
+            }
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(vertical = 4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .background(Color.White, shape = de.koenidv.spheres.ui.components.PxClipShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    logo()
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    style = TextStyle(
+                        fontFamily = SansFontFamily(),
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 18.sp,
+                        color = Color.White
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignInLoadingDots() {
+    val colors = listOf(Color(0xFFEB78B0), Color(0xFFE36F73), Color(0xFF9D7CE7))
+    val transition = rememberInfiniteTransition()
+    val density = LocalDensity.current.density
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        colors.forEachIndexed { i, color ->
+            val yOffset by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 0f,
+                animationSpec = infiniteRepeatable(
+                    animation = keyframes {
+                        durationMillis = 900
+                        delayMillis = i * 150
+                        0f at 0 using FastOutSlowInEasing
+                        -4f at 450 using FastOutSlowInEasing
+                        0f at 900
+                    },
+                    repeatMode = RepeatMode.Restart
+                )
+            )
             Box(
                 modifier = Modifier
-                    .size(28.dp)
-                    .background(Color.White, shape = de.koenidv.spheres.ui.components.PxClipShape),
-                contentAlignment = Alignment.Center
-            ) {
-                logo()
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = label,
-                style = TextStyle(
-                    fontFamily = SansFontFamily(),
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 18.sp,
-                    color = Color.White
-                )
+                    .offset { IntOffset(0, (yOffset * density).roundToInt()) }
+                    .size(8.dp)
+                    .background(color)
             )
         }
     }
