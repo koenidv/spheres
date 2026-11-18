@@ -72,6 +72,7 @@ fun PixelSheet(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
+    scrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     PlatformBackHandler(enabled = open, onBack = onClose)
@@ -276,7 +277,7 @@ fun PixelSheet(
                             .fillMaxWidth()
                             .weight(1f, fill = false)
                             .nestedScroll(nestedScrollConnection)
-                            .verticalScroll(scrollState)
+                            .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier)
                             .padding(horizontal = 24.dp)
                             .padding(bottom = 20.dp),
                         content = content

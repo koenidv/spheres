@@ -48,7 +48,8 @@ fun SheetHost(
     PixelSheet(
         open = sheet != null,
         onClose = { SpheresStore.closeSheet() },
-        title = title
+        title = title,
+        scrollable = activeSheet !is SheetState.PickPerson && activeSheet !is SheetState.LinkContact
     ) {
         AnimatedContent(
             targetState = activeSheet,

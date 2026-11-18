@@ -330,7 +330,6 @@ private fun Shell() {
         currentPath.startsWith("/due") -> BottomNavTab.DUE
         currentPath.startsWith("/spheres") -> BottomNavTab.SPHERES
         currentPath == "/map" -> BottomNavTab.MAP
-        currentPath == "/settings" -> BottomNavTab.RADAR
         else -> null
     }
 
