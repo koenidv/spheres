@@ -58,4 +58,27 @@ platform :ios do
     )
     upload_to_testflight(skip_waiting_for_build_processing: true)
   end
+
+  desc "Build a release and upload it to App Store Connect (no submission)"
+  lane :release do
+    signing
+    key = JSON.parse(File.read(API_KEY_PATH))
+    # Xcode's own account session can expire, so export with the API key instead
+    build_app(
+      project: "iosApp.xcodeproj",
+      scheme: "iosApp",
+      configuration: "Release",
+      export_method: "app-store",
+      xcargs: "-allowProvisioningUpdates " \
+              "-authenticationKeyPath #{key["key_filepath"]} " \
+              "-authenticationKeyID #{key["key_id"]} " \
+              "-authenticationKeyIssuerID #{key["issuer_id"]}"
+    )
+    upload_to_app_store(
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: false,
+      precheck_include_in_app_purchases: false
+    )
+  end
 end
