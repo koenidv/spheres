@@ -347,7 +347,9 @@ private fun LocationPreview(person: Person, place: PlaceResult) {
 fun MissingLocationsSheet() {
     val state by SpheresStore.state.collectAsState()
     val missing = remember(state.people) {
-        state.people.filter { !it.hasCoordinates }.sortedBy { it.name.lowercase() }
+        state.people
+            .filter { it.intervalDays != null && !it.hasCoordinates }
+            .sortedBy { it.name.lowercase() }
     }
 
     Column(

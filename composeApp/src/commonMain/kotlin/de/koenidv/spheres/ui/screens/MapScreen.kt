@@ -93,6 +93,7 @@ fun MapScreen(
     val state by SpheresStore.state.collectAsState()
     val people = state.people
     val located = remember(people) { people.filter { it.hasCoordinates } }
+    val missingCount = remember(people) { people.count { it.intervalDays != null && !it.hasCoordinates } }
     val byId = remember(located) { located.associateBy { it.id } }
     val density = LocalDensity.current.density
     val scope = rememberCoroutineScope()
@@ -168,9 +169,8 @@ fun MapScreen(
         people.isEmpty() -> "Add people to see where they live."
         located.isEmpty() -> "Add a location to a profile to put someone on the map."
         else -> {
-            val without = people.size - located.size
             val base = "${located.size} ${if (located.size == 1) "person" else "people"} on the map"
-            if (without > 0) "$base · $without without a location" else base
+            if (missingCount > 0) "$base · $missingCount without a location" else base
         }
     }
 
@@ -188,7 +188,7 @@ fun MapScreen(
             ScreenHeader(
                 title = "Map",
                 subtitle = subtitle,
-                onSubtitleClick = if (people.size > located.size) {
+                onSubtitleClick = if (missingCount > 0) {
                     { SpheresStore.openSheet(SheetState.MissingLocations) }
                 } else null
             )
