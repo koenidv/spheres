@@ -50,6 +50,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -259,25 +261,37 @@ object SpheresStore {
         PlatformStorage.putString("cache_${uid}_entries", json.encodeToString(entries))
     }
 
-    private suspend fun syncRemote(uid: String) {
-        val currentUser = state.value.user ?: return
-        var token = currentUser.idToken
-        if (!currentUser.refreshToken.isNullOrBlank()) {
-            val refreshed = backend.refreshAuthToken(currentUser.refreshToken)
+    private suspend fun syncRemote(uid: String, pendingUser: AppUser? = null) {
+        var activeUser = pendingUser ?: state.value.user ?: return
+        var token = activeUser.idToken
+        if (!activeUser.refreshToken.isNullOrBlank()) {
+            val refreshed = backend.refreshAuthToken(activeUser.refreshToken)
             if (refreshed != null) {
                 token = refreshed.first
-                val updatedUser = currentUser.copy(idToken = refreshed.first, refreshToken = refreshed.second)
-                PlatformStorage.putString("auth_user", json.encodeToString(updatedUser))
-                _state.update { it.copy(user = updatedUser) }
+                activeUser = activeUser.copy(idToken = refreshed.first, refreshToken = refreshed.second)
+                PlatformStorage.putString("auth_user", json.encodeToString(activeUser))
+                if (pendingUser == null) {
+                    _state.update { it.copy(user = activeUser) }
+                }
             }
         }
-        val remoteSpheres = backend.fetchSpheres(uid, token)
-        val remoteEvents = backend.fetchEvents(uid, token)
-        val remotePeople = backend.fetchPeople(uid, token)
-        val remoteEntries = backend.fetchEntries(uid, token)
+        val (remoteSpheres, remoteEvents, remotePeople, remoteEntries, remoteEntitlement) = coroutineScope {
+            val spheresDeferred = async { backend.fetchSpheres(uid, token) }
+            val eventsDeferred = async { backend.fetchEvents(uid, token) }
+            val peopleDeferred = async { backend.fetchPeople(uid, token) }
+            val entriesDeferred = async { backend.fetchEntries(uid, token) }
+            val entitlementDeferred = if (BuildFlags.PAYWALL_ENABLED) {
+                async { backend.fetchEntitlement(uid, token) }
+            } else null
+            RemoteSyncSnapshot(
+                spheres = spheresDeferred.await(),
+                events = eventsDeferred.await(),
+                people = peopleDeferred.await(),
+                entries = entriesDeferred.await(),
+                entitlement = entitlementDeferred?.await(),
+            )
+        }
         if (BuildFlags.PAYWALL_ENABLED) {
-            val remoteEntitlement = backend.fetchEntitlement(uid, token)
-
             if (remoteEntitlement?.unlocked == true) {
                 PlatformStorage.putString("cache_${uid}_unlimited", "true")
                 remoteEntitlement.platform?.let { p ->
@@ -312,6 +326,8 @@ object SpheresStore {
             persistLocalData(uid, sortedSpheres, sortedEvents, normPeople, remoteEntries)
             _state.update {
                 it.copy(
+                    user = if (pendingUser != null) activeUser else it.user,
+                    authReady = true,
                     spheres = sortedSpheres,
                     events = sortedEvents,
                     people = normPeople,
@@ -321,9 +337,19 @@ object SpheresStore {
             }
             migrate()
             syncReminderSchedule(normPeople, remoteEntries)
+        } else if (pendingUser != null) {
+            _state.update { it.copy(user = activeUser, authReady = true) }
         }
         syncPhoneCalls()
     }
+
+    private data class RemoteSyncSnapshot(
+        val spheres: List<Sphere>,
+        val events: List<SocialEvent>,
+        val people: List<Person>,
+        val entries: List<Entry>,
+        val entitlement: BillingEntitlement?,
+    )
 
     private fun migrate() {
         migrateEvents()
@@ -402,13 +428,12 @@ object SpheresStore {
         completeSignIn(backend.signInWithApple())
     }
 
-    private fun completeSignIn(user: AppUser) {
+    private suspend fun completeSignIn(user: AppUser) {
         PlatformStorage.putString("auth_user", json.encodeToString(user))
-        _state.update { it.copy(user = user, authReady = true) }
         PlatformAnalytics.identify(user.uid)
         PlatformAnalytics.capture("user_signed_in")
         loadCachedDataForUser(user.uid)
-        scope.launch { syncRemote(user.uid) }
+        syncRemote(user.uid, pendingUser = user)
     }
 
     suspend fun deleteAccount() {
