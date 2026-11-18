@@ -80,6 +80,7 @@ sealed interface SheetState {
     data class EventEdit(val eventId: String) : SheetState
     data class AvatarEdit(val personId: String) : SheetState
     data class LocationEdit(val personId: String) : SheetState
+    data object MissingLocations : SheetState
     data class PickPerson(val then: LogMode) : SheetState
     data class LinkContact(
         val contactId: String,

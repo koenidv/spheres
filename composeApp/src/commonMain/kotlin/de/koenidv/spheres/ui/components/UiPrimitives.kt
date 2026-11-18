@@ -672,6 +672,7 @@ fun ScreenHeader(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    onSubtitleClick: (() -> Unit)? = null,
     right: (@Composable () -> Unit)? = null
 ) {
     Column(
@@ -693,7 +694,8 @@ fun ScreenHeader(
                     lineHeight = 36.sp,
                     letterSpacing = 1.92.sp,
                     color = Ink
-                )
+                ),
+                modifier = Modifier.weight(1f, fill = false)
             )
             right?.invoke()
         }
@@ -706,7 +708,17 @@ fun ScreenHeader(
                     lineHeight = 24.sp,
                     color = Ink
                 ),
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .then(
+                        if (onSubtitleClick != null) {
+                            Modifier
+                                .clip(PxClipShape)
+                                .clickable { onSubtitleClick() }
+                        } else {
+                            Modifier
+                        }
+                    )
             )
         }
     }
