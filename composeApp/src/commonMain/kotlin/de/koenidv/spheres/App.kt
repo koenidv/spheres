@@ -13,6 +13,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -106,18 +107,42 @@ private fun navDirection(from: String, to: String): NavDir {
     return NavDir(NavKind.TAB, if (a >= 0 && b >= 0 && b < a) -1 else 1)
 }
 
+private enum class AppStage { SPLASH, SIGN_IN, SHELL }
+
 @Composable
 fun App() {
     SpheresTheme {
         val state by SpheresStore.state.collectAsState()
         StatusBarEffect(colorHex = 0xFFFFFFFFL, dimmed = state.sheet != null)
 
-        if (!state.authReady) {
-            Splash()
-        } else if (state.user == null) {
-            SignInScreen()
-        } else {
-            Shell()
+        val stage = when {
+            !state.authReady -> AppStage.SPLASH
+            state.user == null -> AppStage.SIGN_IN
+            else -> AppStage.SHELL
+        }
+
+        AnimatedContent(
+            targetState = stage,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White),
+            transitionSpec = {
+                if (initialState == AppStage.SIGN_IN && targetState == AppStage.SHELL) {
+                    (fadeIn(tween(320, easing = FastOutSlowInEasing)) +
+                        scaleIn(initialScale = 0.96f, animationSpec = tween(320, easing = FastOutSlowInEasing)))
+                        .togetherWith(fadeOut(tween(220, easing = FastOutSlowInEasing)))
+                } else {
+                    fadeIn(tween(240, easing = FastOutSlowInEasing))
+                        .togetherWith(fadeOut(tween(180, easing = FastOutSlowInEasing)))
+                }
+            },
+            label = "AppStage"
+        ) { currentStage ->
+            when (currentStage) {
+                AppStage.SPLASH -> Splash()
+                AppStage.SIGN_IN -> SignInScreen()
+                AppStage.SHELL -> Shell()
+            }
         }
     }
 }
