@@ -3,6 +3,6 @@
     <style name="Theme.Spheres" parent="@android:style/Theme.Material.Light.NoActionBar">
         <!-- White to match the in-app splash that follows -->
         <item name="android:windowSplashScreenBackground">#FFFFFF</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
     </style>
 </resources>
