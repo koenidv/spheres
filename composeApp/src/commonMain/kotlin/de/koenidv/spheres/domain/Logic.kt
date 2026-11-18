@@ -255,6 +255,18 @@ fun formatBirthday(b: Birthday): String {
     return if (b.year != null) "$base ${b.year}" else base
 }
 
+fun birthdayToEpochMillis(b: Birthday?, now: Long = currentTimeMillis()): Long {
+    if (b == null) return now
+    val tz = TimeZone.currentSystemDefault()
+    val year = b.year ?: Instant.fromEpochMilliseconds(now).toLocalDateTime(tz).date.year
+    return birthdayEpochMillis(year, b.month, b.day, tz)
+}
+
+fun epochMillisToBirthday(millis: Long): Birthday {
+    val d = Instant.fromEpochMilliseconds(millis).toLocalDateTime(TimeZone.currentSystemDefault()).date
+    return Birthday(month = d.monthNumber, day = d.dayOfMonth, year = d.year)
+}
+
 private fun plural(n: Int, unit: String): String = "$n $unit${if (n == 1) "" else "s"}"
 
 fun relativeDays(ts: Long, now: Long = currentTimeMillis()): String {

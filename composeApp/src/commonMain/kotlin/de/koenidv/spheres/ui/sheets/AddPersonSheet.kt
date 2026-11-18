@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -37,11 +35,14 @@ import de.koenidv.spheres.domain.Birthday
 import de.koenidv.spheres.domain.FREE_CONNECTIONS_LIMIT
 import de.koenidv.spheres.domain.INTERVALS
 import de.koenidv.spheres.domain.UNTRACKED_COLOR
+import de.koenidv.spheres.domain.birthdayToEpochMillis
 import de.koenidv.spheres.domain.canAddPerson
+import de.koenidv.spheres.domain.epochMillisToBirthday
+import de.koenidv.spheres.domain.formatBirthday
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.platform.PickedContact
-import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.platform.rememberContactPickerLauncher
+import de.koenidv.spheres.platform.rememberNativeDatePicker
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.Field
 import de.koenidv.spheres.ui.components.IconName
@@ -62,11 +63,6 @@ import de.koenidv.spheres.ui.theme.PixelFontFamily
 import de.koenidv.spheres.ui.theme.SansFontFamily
 import de.koenidv.spheres.ui.theme.parseHexColor
 import de.koenidv.spheres.ui.theme.tintColor
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-
-private val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 @Composable
 fun AddPersonSheet(
@@ -81,9 +77,7 @@ fun AddPersonSheet(
     var name by remember { mutableStateOf(sheet.name ?: "") }
     var interval by remember { mutableStateOf<Int?>(sheet.intervalDays ?: 30) }
     var sphereIds by remember { mutableStateOf(sheet.sphereId?.let { listOf(it) } ?: emptyList()) }
-    var bMonth by remember { mutableIntStateOf(0) }
-    var bDay by remember { mutableIntStateOf(0) }
-    var bYear by remember { mutableStateOf("") }
+    var birthday by remember { mutableStateOf<Birthday?>(null) }
     var note by remember { mutableStateOf(sheet.note ?: "") }
     var city by remember { mutableStateOf("") }
     var address by remember { mutableStateOf<String?>(null) }
@@ -110,12 +104,8 @@ fun AddPersonSheet(
                 country = c.country.trim()
             }
             c.birthday?.let { b ->
-                if (bMonth == 0 && bDay == 0) {
-                    bMonth = b.month
-                    bDay = b.day
-                    if (b.year != null && bYear.isBlank()) {
-                        bYear = b.year.toString()
-                    }
+                if (birthday == null) {
+                    birthday = b
                 }
             }
             return@rememberContactPickerLauncher
@@ -180,17 +170,6 @@ fun AddPersonSheet(
                         SheetState.Paywall(reason = PaywallReason.ConnectionsLimit, returnTo = sheet)
                     )
                 } else {
-                    val year = bYear.toIntOrNull()
-                    val currentYear = Instant.fromEpochMilliseconds(currentTimeMillis())
-                        .toLocalDateTime(TimeZone.currentSystemDefault()).year
-                    val birthday = if (bMonth in 1..12 && bDay in 1..31) {
-                        Birthday(
-                            month = bMonth,
-                            day = bDay,
-                            year = if (year != null && year in 1901..currentYear) year else null
-                        )
-                    } else null
-
                     SpheresStore.addPerson(
                         name = n,
                         intervalDays = interval,
@@ -389,105 +368,51 @@ fun AddPersonSheet(
         }
 
         if (currentBatch == null) {
+            val openBirthdayPicker = rememberNativeDatePicker(
+                initialDateMillis = birthdayToEpochMillis(birthday),
+                onDateSelected = { pickedMillis ->
+                    birthday = epochMillisToBirthday(pickedMillis)
+                }
+            )
             Field(label = "Birthday (optional)") {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(PxClipShape)
+                        .background(FieldBg)
+                        .clickable { openBirthdayPicker() }
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    var dayMenuOpen by remember { mutableStateOf(false) }
-                    var monthMenuOpen by remember { mutableStateOf(false) }
-
-                    Box(modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .clip(PxClipShape)
-                                .background(FieldBg)
-                                .clickable { dayMenuOpen = true }
-                                .padding(horizontal = 12.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = if (bDay > 0) bDay.toString() else "Day",
-                                style = TextStyle(
-                                    fontFamily = SansFontFamily(),
-                                    fontSize = 16.sp,
-                                    color = if (bDay > 0) Ink else Ink.copy(alpha = 0.35f)
-                                )
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = dayMenuOpen,
-                            onDismissRequest = { dayMenuOpen = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Day") },
-                                onClick = {
-                                    bDay = 0
-                                    dayMenuOpen = false
-                                }
-                            )
-                            for (d in 1..31) {
-                                DropdownMenuItem(
-                                    text = { Text(d.toString()) },
-                                    onClick = {
-                                        bDay = d
-                                        dayMenuOpen = false
-                                    }
+                    Text(
+                        text = birthday?.let { formatBirthday(it) } ?: "Add birthday",
+                        style = TextStyle(
+                            fontFamily = SansFontFamily(),
+                            fontSize = 16.sp,
+                            color = if (birthday != null) Ink else Ink.copy(alpha = 0.35f)
+                        )
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (birthday != null) {
+                            Box(
+                                modifier = Modifier.clickable { birthday = null }
+                            ) {
+                                PixelIcon(
+                                    name = IconName.CLOSE,
+                                    size = 16.dp,
+                                    tint = Ink.copy(alpha = 0.45f)
                                 )
                             }
                         }
-                    }
-
-                    Box(modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .clip(PxClipShape)
-                                .background(FieldBg)
-                                .clickable { monthMenuOpen = true }
-                                .padding(horizontal = 12.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = if (bMonth in 1..12) MONTHS[bMonth - 1] else "Month",
-                                style = TextStyle(
-                                    fontFamily = SansFontFamily(),
-                                    fontSize = 16.sp,
-                                    color = if (bMonth in 1..12) Ink else Ink.copy(alpha = 0.35f)
-                                )
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = monthMenuOpen,
-                            onDismissRequest = { monthMenuOpen = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Month") },
-                                onClick = {
-                                    bMonth = 0
-                                    monthMenuOpen = false
-                                }
-                            )
-                            MONTHS.forEachIndexed { idx, m ->
-                                DropdownMenuItem(
-                                    text = { Text(m) },
-                                    onClick = {
-                                        bMonth = idx + 1
-                                        monthMenuOpen = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    Box(modifier = Modifier.weight(1f)) {
-                        PixelTextInput(
-                            value = bYear,
-                            onValueChange = { bYear = it.filter { ch -> ch.isDigit() }.take(4) },
-                            placeholder = "Year"
+                        PixelIcon(
+                            name = IconName.CALENDAR,
+                            size = 18.dp,
+                            tint = Ink.copy(alpha = 0.55f)
                         )
                     }
                 }

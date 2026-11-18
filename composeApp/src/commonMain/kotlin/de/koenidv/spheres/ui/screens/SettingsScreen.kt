@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -381,6 +383,41 @@ fun SettingsScreen(
                                     )
                                 }
                             }
+                            var accountMenuOpen by remember { mutableStateOf(false) }
+                            Box {
+                                PixelIconButton(
+                                    icon = IconName.MORE,
+                                    tint = Muted,
+                                    size = 36.dp,
+                                    onClick = { accountMenuOpen = true }
+                                )
+                                DropdownMenu(
+                                    expanded = accountMenuOpen,
+                                    onDismissRequest = { accountMenuOpen = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "Export JSON",
+                                                style = TextStyle(
+                                                    fontFamily = SansFontFamily(),
+                                                    fontSize = 14.sp,
+                                                    color = Ink
+                                                )
+                                            )
+                                        },
+                                        onClick = {
+                                            accountMenuOpen = false
+                                            val now = currentTimeMillis()
+                                            val dateStr = Instant.fromEpochMilliseconds(now)
+                                                .toLocalDateTime(TimeZone.currentSystemDefault())
+                                                .date.toString()
+                                            val jsonString = SpheresStore.exportData()
+                                            shareJsonFile("spheres-$dateStr.json", jsonString)
+                                        }
+                                    )
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -441,9 +478,9 @@ fun SettingsScreen(
                         ) {
                             Text(
                                 text = if (notificationsSupported) {
-                                    "Get a nudge when a connection is due and on birthdays."
+                                    "Get a nudge for due connections and on birthdays"
                                 } else {
-                                    "Notifications are not supported on this device."
+                                    "Notifications are not supported on this device"
                                 },
                                 style = TextStyle(
                                     fontFamily = SansFontFamily(),
@@ -512,9 +549,9 @@ fun SettingsScreen(
                         ) {
                             Text(
                                 text = if (phoneSupported) {
-                                    "Log a phone check-in automatically for every call longer than 10 minutes."
+                                    "Automatically log phone check-ins"
                                 } else {
-                                    "Phone call integration is not supported on this device."
+                                    "Phone call integration is not supported on this device"
                                 },
                                 style = TextStyle(
                                     fontFamily = SansFontFamily(),
@@ -564,7 +601,7 @@ fun SettingsScreen(
                         if (phoneSupported) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Matches calls against your connections by phone number or contact name.",
+                                text = "Adds check-ins for calls longer than 10 minutes.",
                                 style = TextStyle(
                                     fontFamily = SansFontFamily(),
                                     fontSize = 13.sp,
@@ -572,27 +609,6 @@ fun SettingsScreen(
                                 )
                             )
                         }
-                    }
-                }
-
-                Card {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        CardLabel(title = "Data", icon = IconName.DOWNLOAD)
-                        PixelButton(
-                            text = "Export JSON",
-                            icon = IconName.DOWNLOAD,
-                            variant = ButtonVariant.SECONDARY,
-                            size = ButtonSize.MD,
-                            fullWidth = true,
-                            onClick = {
-                                val now = currentTimeMillis()
-                                val dateStr = Instant.fromEpochMilliseconds(now)
-                                    .toLocalDateTime(TimeZone.currentSystemDefault())
-                                    .date.toString()
-                                val jsonString = SpheresStore.exportData()
-                                shareJsonFile("spheres-$dateStr.json", jsonString)
-                            }
-                        )
                     }
                 }
 

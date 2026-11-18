@@ -77,7 +77,9 @@ import de.koenidv.spheres.domain.INTERVALS
 import de.koenidv.spheres.domain.Person
 import de.koenidv.spheres.domain.contactScore
 import de.koenidv.spheres.platform.currentTimeMillis
+import de.koenidv.spheres.domain.birthdayToEpochMillis
 import de.koenidv.spheres.domain.dueInfo
+import de.koenidv.spheres.domain.epochMillisToBirthday
 import de.koenidv.spheres.domain.firstName
 import de.koenidv.spheres.domain.formatBirthday
 import de.koenidv.spheres.domain.formatDay
@@ -90,6 +92,7 @@ import de.koenidv.spheres.domain.sphereIdsViaEvents
 import de.koenidv.spheres.platform.openExternalUrl
 import de.koenidv.spheres.platform.randomUuid
 import de.koenidv.spheres.platform.rememberContactPickerLauncher
+import de.koenidv.spheres.platform.rememberNativeDatePicker
 import de.koenidv.spheres.ui.components.AnchoredPopupMenu
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.ButtonVariant
@@ -978,10 +981,14 @@ private fun OptInSpheresRow(
 @Composable
 private fun BirthdayCard(person: Person) {
     val b = person.birthday
-    var isEditing by remember { mutableStateOf(false) }
-    var day by remember(b) { mutableStateOf(b?.day ?: 1) }
-    var month by remember(b) { mutableStateOf(b?.month ?: 1) }
-    var yearStr by remember(b) { mutableStateOf(b?.year?.toString() ?: "") }
+    val openPicker = rememberNativeDatePicker(
+        initialDateMillis = birthdayToEpochMillis(b),
+        onDateSelected = { pickedMillis ->
+            SpheresStore.updatePerson(person.id) {
+                it.copy(birthday = epochMillisToBirthday(pickedMillis))
+            }
+        }
+    )
 
     val nb = b?.let { nextBirthday(it) }
     val rb = b?.let { recentBirthday(it) }
@@ -994,75 +1001,28 @@ private fun BirthdayCard(person: Person) {
                 title = "Birthday",
                 icon = IconName.CAKE,
                 color = amberColor,
-                right = if (b != null && !isEditing) {
+                right = if (b != null) {
                     {
-                        Box(modifier = Modifier.clickable { isEditing = true }) {
-                            PixelIcon(name = IconName.EDIT, size = 18.dp, tint = Ink.copy(alpha = 0.5f))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.clickable { openPicker() }) {
+                                PixelIcon(name = IconName.EDIT, size = 18.dp, tint = Ink.copy(alpha = 0.5f))
+                            }
+                            Box(
+                                modifier = Modifier.clickable {
+                                    SpheresStore.updatePerson(person.id) { it.copy(birthday = null) }
+                                }
+                            ) {
+                                PixelIcon(name = IconName.CLOSE, size = 16.dp, tint = Ink.copy(alpha = 0.45f))
+                            }
                         }
                     }
                 } else null
             )
 
-            if (isEditing) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PixelTextInput(
-                            value = day.toString(),
-                            onValueChange = { day = it.filter { ch -> ch.isDigit() }.toIntOrNull()?.coerceIn(1, 31) ?: 1 },
-                            placeholder = "Day",
-                            modifier = Modifier.width(72.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                        PixelTextInput(
-                            value = month.toString(),
-                            onValueChange = { month = it.filter { ch -> ch.isDigit() }.toIntOrNull()?.coerceIn(1, 12) ?: 1 },
-                            placeholder = "Month",
-                            modifier = Modifier.width(84.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                        PixelTextInput(
-                            value = yearStr,
-                            onValueChange = { yearStr = it.filter { ch -> ch.isDigit() }.take(4) },
-                            placeholder = "Year (opt)",
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PixelButton(
-                            text = "Save",
-                            variant = ButtonVariant.PRIMARY,
-                            size = ButtonSize.SM,
-                            onClick = {
-                                val y = yearStr.toIntOrNull()
-                                SpheresStore.updatePerson(person.id) {
-                                    it.copy(birthday = Birthday(month = month, day = day, year = y))
-                                }
-                                isEditing = false
-                            }
-                        )
-                        PixelButton(
-                            text = "Cancel",
-                            variant = ButtonVariant.SECONDARY,
-                            size = ButtonSize.SM,
-                            onClick = { isEditing = false }
-                        )
-                        if (b != null) {
-                            Spacer(modifier = Modifier.weight(1f))
-                            PixelButton(
-                                text = "Clear",
-                                variant = ButtonVariant.DANGER,
-                                size = ButtonSize.SM,
-                                onClick = {
-                                    SpheresStore.updatePerson(person.id) { it.copy(birthday = null) }
-                                    isEditing = false
-                                }
-                            )
-                        }
-                    }
-                }
-            } else if (b != null && nb != null) {
+            if (b != null && nb != null) {
                 val whenText = if (nb.inDays == 0) "today" else if (nb.inDays == 1) "tomorrow" else "in ${nb.inDays} days"
                 val bdayText = formatBirthday(b.copy(year = null))
                 val sub = when {
@@ -1078,7 +1038,10 @@ private fun BirthdayCard(person: Person) {
                         fontSize = 16.sp,
                         lineHeight = 24.sp,
                         color = Ink
-                    )
+                    ),
+                    modifier = Modifier
+                        .clip(PxClipShape)
+                        .clickable { openPicker() }
                 )
             } else {
                 PixelButton(
@@ -1086,7 +1049,7 @@ private fun BirthdayCard(person: Person) {
                     icon = IconName.PLUS,
                     variant = ButtonVariant.SECONDARY,
                     size = ButtonSize.SM,
-                    onClick = { isEditing = true }
+                    onClick = { openPicker() }
                 )
             }
         }
