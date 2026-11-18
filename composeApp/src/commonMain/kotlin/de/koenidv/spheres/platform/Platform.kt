@@ -2,12 +2,18 @@ package de.koenidv.spheres.platform
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.ImageBitmap
+import de.koenidv.spheres.domain.Birthday
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class PickedContact(
     val name: String,
+    val contactId: String? = null,
+    val phoneNumbers: List<String> = emptyList(),
     val city: String? = null,
+    val address: String? = null,
+    val country: String? = null,
+    val birthday: Birthday? = null,
 )
 
 @Serializable
@@ -17,6 +23,16 @@ data class PlatformReminderItem(
     val body: String,
     val at: Long,
     val personId: String,
+)
+
+@Serializable
+data class PhoneCallRecord(
+    val id: String,
+    val number: String? = null,
+    val contactId: String? = null,
+    val contactName: String? = null,
+    val startedAt: Long,
+    val durationSeconds: Long,
 )
 
 data class AppleSignInCredential(
@@ -58,6 +74,7 @@ expect object PlatformBilling {
 expect fun haptic(durationMs: Int = 8)
 expect fun currentTimeMillis(): Long
 expect fun randomUuid(): String
+expect fun sha256Hex(input: String): String
 
 expect object PlatformStorage {
     fun getString(key: String): String?
@@ -87,6 +104,14 @@ expect object PlatformNotifications {
     fun syncSchedule(items: List<PlatformReminderItem>, overdueCount: Int)
 }
 
+expect object PlatformPhoneIntegration {
+    fun isSupported(): Boolean
+    fun isGranted(): Boolean
+    suspend fun requestPermission(): Boolean
+    fun fetchCallsLongerThan(minDurationSeconds: Long, sinceMillis: Long): List<PhoneCallRecord>
+    fun getPhoneNumbersForContact(contactId: String): List<String>
+}
+
 expect fun shareJsonFile(filename: String, jsonContent: String)
 expect fun openExternalUrl(url: String)
 expect suspend fun launchGoogleAuthFlow(authUrl: String, callbackScheme: String): String
@@ -98,7 +123,10 @@ expect suspend fun signInWithAppleNative(): AppleSignInCredential
 expect fun appleLogoBitmap(): ImageBitmap?
 
 @Composable
-expect fun rememberContactPickerLauncher(onPicked: (List<PickedContact>) -> Unit): () -> Unit
+expect fun rememberContactPickerLauncher(
+    allowMultiple: Boolean = true,
+    onPicked: (List<PickedContact>) -> Unit,
+): () -> Unit
 
 @Composable
 expect fun rememberPhotoPickerLauncher(onPicked: (ByteArray) -> Unit): () -> Unit
@@ -151,3 +179,11 @@ object NotificationActionBridge {
         }
     }
 }
+
+@Serializable
+data class UnlinkedCallPrompt(
+    val contactId: String,
+    val contactName: String,
+    val durationMinutes: Long,
+    val callStartedAt: Long,
+)

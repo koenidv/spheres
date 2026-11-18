@@ -65,6 +65,8 @@ import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.data.LogMode
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
+import androidx.compose.foundation.layout.widthIn
+import de.koenidv.spheres.domain.locationLabel
 import de.koenidv.spheres.domain.Birthday
 import de.koenidv.spheres.domain.DAY
 import de.koenidv.spheres.domain.DueStatus
@@ -87,6 +89,7 @@ import de.koenidv.spheres.domain.relativeDays
 import de.koenidv.spheres.domain.sphereIdsViaEvents
 import de.koenidv.spheres.platform.openExternalUrl
 import de.koenidv.spheres.platform.randomUuid
+import de.koenidv.spheres.platform.rememberContactPickerLauncher
 import de.koenidv.spheres.ui.components.AnchoredPopupMenu
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.ButtonVariant
@@ -677,10 +680,59 @@ fun PersonScreen(
                 DetailsCard(person = person)
                 TimelineCard(entries = entries)
 
+                val pickLinkContact = rememberContactPickerLauncher(allowMultiple = false) { picked ->
+                    val contact = picked.firstOrNull() ?: return@rememberContactPickerLauncher
+                    val cid = contact.contactId
+                    if (!cid.isNullOrBlank()) {
+                        SpheresStore.linkContact(person.id, cid, contact.name, contact.phoneNumbers)
+                        SpheresStore.showToast("Linked ${contact.name}")
+                    }
+                }
+
+                val isLinked = person.contactPhoneHashes.isNotEmpty() ||
+                    person.contactName != null ||
+                    SpheresStore.getLocalContactId(person.id) != null
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 16.dp)
+                ) {
+                    if (isLinked) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PixelButton(
+                                text = "Linked: ${person.contactName ?: "Contact"}",
+                                icon = IconName.PHONE,
+                                variant = ButtonVariant.SECONDARY,
+                                size = ButtonSize.LG,
+                                modifier = Modifier.weight(1f),
+                                onClick = pickLinkContact
+                            )
+                            PixelIconButton(
+                                icon = IconName.CLOSE,
+                                onClick = { SpheresStore.unlinkContact(person.id) }
+                            )
+                        }
+                    } else {
+                        PixelButton(
+                            text = "Link contact",
+                            icon = IconName.PHONE,
+                            variant = ButtonVariant.SECONDARY,
+                            size = ButtonSize.LG,
+                            fullWidth = true,
+                            onClick = pickLinkContact
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
                 ) {
                     PixelButton(
                         text = if (deleteConfirm) "Tap again to delete" else "Delete connection",
@@ -822,57 +874,26 @@ private fun ArcHeader(accent: Color, content: @Composable () -> Unit) {
 
 @Composable
 private fun CityLine(person: Person) {
-    var isEditing by remember { mutableStateOf(false) }
-    var cityDraft by remember(person.city) { mutableStateOf(person.city ?: "") }
-
-    if (isEditing) {
-        BasicTextField(
-            value = cityDraft,
-            onValueChange = { cityDraft = it },
-            textStyle = TextStyle(
+    val label = person.locationLabel()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .widthIn(max = 220.dp)
+            .clickable { SpheresStore.openSheet(SheetState.LocationEdit(person.id)) }
+    ) {
+        PixelIcon(name = IconName.PIN, size = 16.dp, tint = if (label != null) Ink else Muted)
+        Text(
+            text = label ?: "Add location",
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = TextStyle(
                 fontFamily = SansFontFamily(),
                 fontSize = 16.sp,
                 lineHeight = 24.sp,
-                color = Ink,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            ),
-            cursorBrush = SolidColor(Ink),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(
-                onDone = {
-                    val v = cityDraft.trim().ifEmpty { null }
-                    if (v != person.city) {
-                        SpheresStore.updatePerson(person.id) { it.copy(city = v) }
-                    }
-                    isEditing = false
-                }
-            ),
-            modifier = Modifier
-                .width(140.dp)
-                .background(Color.Transparent)
-                .autoFocus(delayMs = 0L)
-        )
-    } else {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.clickable {
-                cityDraft = person.city ?: ""
-                isEditing = true
-            }
-        ) {
-            PixelIcon(name = IconName.PIN, size = 16.dp, tint = if (person.city != null) Ink else Muted)
-            Text(
-                text = person.city ?: "Add city",
-                style = TextStyle(
-                    fontFamily = SansFontFamily(),
-                    fontSize = 16.sp,
-                    lineHeight = 24.sp,
-                    color = if (person.city != null) Ink.copy(alpha = 0.75f) else Ink.copy(alpha = 0.4f)
-                )
+                color = if (label != null) Ink.copy(alpha = 0.75f) else Ink.copy(alpha = 0.4f)
             )
-        }
+        )
     }
 }
 

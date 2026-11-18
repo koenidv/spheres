@@ -4,6 +4,9 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import de.koenidv.spheres.ui.components.SteppedPolygonShape
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,12 +49,14 @@ import de.koenidv.spheres.domain.INTERVALS
 import de.koenidv.spheres.domain.UNTRACKED_COLOR
 import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.platform.PlatformNotifications
+import de.koenidv.spheres.platform.PlatformPhoneIntegration
 import de.koenidv.spheres.platform.shareJsonFile
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.ButtonVariant
 import de.koenidv.spheres.ui.components.Card
 import de.koenidv.spheres.ui.components.CardLabel
 import de.koenidv.spheres.ui.components.IconName
+import de.koenidv.spheres.ui.components.PixelIconButton
 import de.koenidv.spheres.ui.components.PixelAvatar
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelIcon
@@ -139,18 +144,36 @@ fun SettingsScreen(
     var deleting by remember { mutableStateOf(false) }
     var deleteError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(deleteConfirm) {
-        if (deleteConfirm) {
-            delay(4000)
-            deleteConfirm = false
-        }
-    }
-
     var notificationsGranted by remember {
         mutableStateOf(PlatformNotifications.isGranted())
     }
     val notificationsSupported = remember {
         PlatformNotifications.isSupported()
+    }
+    val phoneSupported = remember {
+        PlatformPhoneIntegration.isSupported()
+    }
+
+    if (deleteConfirm) {
+        DeleteAccountDialog(
+            onCancel = { deleteConfirm = false },
+            onConfirm = {
+                deleteConfirm = false
+                deleting = true
+                scope.launch {
+                    try {
+                        SpheresStore.deleteAccount()
+                    } catch (e: Exception) {
+                        val msg = e.message
+                        if (msg == null || !msg.contains("cancel", ignoreCase = true)) {
+                            deleteError = msg ?: "Could not delete account"
+                        }
+                    } finally {
+                        deleting = false
+                    }
+                }
+            }
+        )
     }
 
     Box(
@@ -166,6 +189,14 @@ fun SettingsScreen(
                 .navigationBarsPadding()
                 .padding(bottom = 96.dp)
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, top = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PixelIconButton(icon = IconName.BACK, onClick = { onNavigate("..") })
+            }
             ScreenHeader(title = "Settings")
 
             Column(
@@ -365,49 +396,38 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        PixelButton(
-                            text = when {
-                                deleting -> "Deleting account…"
-                                deleteConfirm -> "Tap again to delete everything"
-                                else -> "Delete account"
-                            },
-                            icon = IconName.TRASH,
-                            variant = ButtonVariant.DANGER,
-                            size = ButtonSize.MD,
-                            fullWidth = true,
-                            enabled = !deleting,
-                            onClick = {
-                                if (!deleteConfirm) {
-                                    deleteConfirm = true
-                                    deleteError = null
-                                } else {
-                                    deleteConfirm = false
-                                    deleting = true
-                                    scope.launch {
-                                        try {
-                                            SpheresStore.deleteAccount()
-                                        } catch (e: Exception) {
-                                            val msg = e.message
-                                            if (msg == null || !msg.contains("cancel", ignoreCase = true)) {
-                                                deleteError = msg ?: "Could not delete account"
-                                            }
-                                        } finally {
-                                            deleting = false
-                                        }
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (deleting) "Deleting account…" else "Delete account",
+                                style = TextStyle(
+                                    fontFamily = PixelFontFamily(),
+                                    fontSize = 15.sp,
+                                    color = DangerText.copy(alpha = if (deleting) 0.5f else 0.85f)
+                                ),
+                                modifier = Modifier
+                                    .clip(PxClipShape)
+                                    .clickable(enabled = !deleting) {
+                                        deleteError = null
+                                        deleteConfirm = true
                                     }
-                                }
-                            }
-                        )
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
 
-                        Text(
-                            text = deleteError ?: "Permanently deletes your account, connections and photos.",
-                            style = TextStyle(
-                                fontFamily = SansFontFamily(),
-                                fontSize = 13.sp,
-                                color = if (deleteError != null) DangerText else Muted
-                            ),
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
+                        if (deleteError != null) {
+                            Text(
+                                text = deleteError!!,
+                                style = TextStyle(
+                                    fontFamily = SansFontFamily(),
+                                    fontSize = 13.sp,
+                                    color = DangerText
+                                ),
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
                     }
                 }
 
@@ -484,6 +504,79 @@ fun SettingsScreen(
 
                 Card {
                     Column(modifier = Modifier.fillMaxWidth()) {
+                        CardLabel(title = "Integrations", icon = IconName.PHONE)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = if (phoneSupported) {
+                                    "Log a phone check-in automatically for every call longer than 10 minutes."
+                                } else {
+                                    "Phone call integration is not supported on this device."
+                                },
+                                style = TextStyle(
+                                    fontFamily = SansFontFamily(),
+                                    fontSize = 15.sp,
+                                    lineHeight = 24.sp,
+                                    color = Ink
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            val phoneEnabled = phoneSupported && state.phoneIntegrationEnabled
+                            val phoneKnobOffset by animateDpAsState(
+                                targetValue = if (phoneEnabled) 28.dp else 4.dp,
+                                animationSpec = tween(150)
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 56.dp, height = 32.dp)
+                                    .clip(PxClipShape)
+                                    .background(if (phoneEnabled) Ink else Ink.copy(alpha = 0.15f))
+                                    .clickable(enabled = phoneSupported) {
+                                        if (phoneEnabled) {
+                                            SpheresStore.setPhoneIntegrationEnabled(false)
+                                        } else {
+                                            scope.launch {
+                                                val granted = PlatformPhoneIntegration.requestPermission()
+                                                if (granted) {
+                                                    SpheresStore.setPhoneIntegrationEnabled(true)
+                                                } else {
+                                                    SpheresStore.showToast("Call log permission was not allowed")
+                                                }
+                                            }
+                                        }
+                                    }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = phoneKnobOffset, y = 4.dp)
+                                        .size(24.dp)
+                                        .clip(PxClipShape)
+                                        .background(Color.White)
+                                )
+                            }
+                        }
+
+                        if (phoneSupported) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Matches calls against your connections by phone number or contact name.",
+                                style = TextStyle(
+                                    fontFamily = SansFontFamily(),
+                                    fontSize = 13.sp,
+                                    color = Muted
+                                )
+                            )
+                        }
+                    }
+                }
+
+                Card {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         CardLabel(title = "Data", icon = IconName.DOWNLOAD)
                         PixelButton(
                             text = "Export JSON",
@@ -531,6 +624,44 @@ fun SettingsScreen(
                     PixelIcon(name = IconName.RADAR, size = 16.dp, tint = Muted)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DeleteAccountDialog(onCancel: () -> Unit, onConfirm: () -> Unit) {
+    Dialog(onDismissRequest = onCancel) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 360.dp)
+                .fillMaxWidth()
+                .clip(SteppedPolygonShape(steps = 3))
+                .background(Color.White)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Delete account?",
+                style = TextStyle(fontFamily = PixelFontFamily(), fontSize = 22.sp, lineHeight = 28.sp, color = Ink)
+            )
+            Text(
+                text = "This permanently deletes your account, all connections, notes and photos. It can't be undone.",
+                style = TextStyle(fontFamily = SansFontFamily(), fontSize = 15.sp, lineHeight = 22.sp, color = Muted)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            PixelButton(
+                text = "Delete everything",
+                icon = IconName.TRASH,
+                variant = ButtonVariant.DANGER,
+                fullWidth = true,
+                onClick = onConfirm
+            )
+            PixelButton(
+                text = "Cancel",
+                variant = ButtonVariant.SECONDARY,
+                fullWidth = true,
+                onClick = onCancel
+            )
         }
     }
 }

@@ -129,6 +129,11 @@ data class Person(
     val intervalDays: Int? = null,
     val sphereIds: List<String> = emptyList(),
     val city: String? = null,
+    /** Optional street and number; [city] stays the coarse location. */
+    val address: String? = null,
+    val country: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
     val eventIds: List<String> = emptyList(),
     val followUpAt: Long? = null,
     val baseContactAt: Long? = null,
@@ -140,6 +145,8 @@ data class Person(
     val dismissedAt: Long? = null,
     val avatar: AvatarConfig? = null,
     val photoUrl: String? = null,
+    val contactName: String? = null,
+    val contactPhoneHashes: List<String> = emptyList(),
     val createdAt: Long,
 )
 
@@ -174,3 +181,11 @@ data class BillingEntitlement(
     val purchaseToken: String? = null,
     val revokedAt: Long? = null,
 )
+
+val Person.hasCoordinates: Boolean get() = lat != null && lng != null
+
+/** One-line place for lists: "Street 1, Berlin" or just "Berlin". */
+fun Person.locationLabel(): String? {
+    val parts = listOfNotNull(address?.trim()?.ifEmpty { null }, city?.trim()?.ifEmpty { null })
+    return parts.joinToString(", ").ifEmpty { null }
+}

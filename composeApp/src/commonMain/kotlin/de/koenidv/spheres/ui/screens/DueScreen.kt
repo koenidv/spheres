@@ -40,6 +40,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.DAY
 import de.koenidv.spheres.domain.DueInfo
@@ -63,10 +64,13 @@ import de.koenidv.spheres.domain.nextBirthday
 import de.koenidv.spheres.domain.recentBirthday
 import de.koenidv.spheres.domain.relativeDays
 import de.koenidv.spheres.domain.sphereIdsViaEvents
+import de.koenidv.spheres.ui.components.ButtonSize
+import de.koenidv.spheres.ui.components.ButtonVariant
 import de.koenidv.spheres.ui.components.Chip
 import de.koenidv.spheres.ui.components.HealthRing
 import de.koenidv.spheres.ui.components.IconName
 import de.koenidv.spheres.ui.components.PersonAvatar
+import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelIcon
 import de.koenidv.spheres.ui.components.PixelPanel
 import de.koenidv.spheres.ui.components.PxClipShape
@@ -215,6 +219,87 @@ fun DueScreen(
                 title = "Check-ins",
                 subtitle = subtitle
             )
+
+            if (state.unlinkedCallPrompts.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    for (prompt in state.unlinkedCallPrompts) {
+                        PixelPanel(color = Color(0xFF9D7CE7)) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    PixelIcon(name = IconName.PHONE, size = 16.dp, tint = Ink)
+                                    Text(
+                                        text = "Long call with ${prompt.contactName}",
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = TextStyle(
+                                            fontFamily = PixelFontFamily(),
+                                            fontSize = 15.sp,
+                                            color = Ink
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clickable { SpheresStore.dismissUnlinkedCallPrompt(prompt.contactId) }
+                                            .padding(4.dp)
+                                    ) {
+                                        PixelIcon(name = IconName.CLOSE, size = 14.dp, tint = Muted)
+                                    }
+                                }
+                                Text(
+                                    text = "${prompt.durationMinutes} min call · Link ${prompt.contactName} to a connection to log future calls automatically?",
+                                    style = TextStyle(
+                                        fontFamily = SansFontFamily(),
+                                        fontSize = 14.sp,
+                                        lineHeight = 20.sp,
+                                        color = Ink.copy(alpha = 0.8f)
+                                    )
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    PixelButton(
+                                        text = "Link connection",
+                                        variant = ButtonVariant.PRIMARY,
+                                        size = ButtonSize.SM,
+                                        onClick = {
+                                            SpheresStore.openSheet(
+                                                SheetState.LinkContact(
+                                                    contactId = prompt.contactId,
+                                                    contactName = prompt.contactName,
+                                                    callStartedAt = prompt.callStartedAt,
+                                                    durationMinutes = prompt.durationMinutes,
+                                                )
+                                            )
+                                        }
+                                    )
+                                    PixelButton(
+                                        text = "Don't ask again",
+                                        variant = ButtonVariant.SECONDARY,
+                                        size = ButtonSize.SM,
+                                        onClick = { SpheresStore.ignoreUnlinkedContact(prompt.contactId) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             if (caughtUp) {
                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)) {

@@ -21,19 +21,59 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.CallLog
 import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import de.koenidv.spheres.domain.Birthday
+import de.koenidv.spheres.domain.parseContactBirthday
+import de.koenidv.spheres.ui.components.ButtonSize
+import de.koenidv.spheres.ui.components.ButtonVariant
+import de.koenidv.spheres.ui.components.IconName
+import de.koenidv.spheres.ui.components.PixelButton
+import de.koenidv.spheres.ui.components.PixelIcon
+import de.koenidv.spheres.ui.components.PixelPanel
+import de.koenidv.spheres.ui.components.PixelTextInput
+import de.koenidv.spheres.ui.components.PxClipShape
+import de.koenidv.spheres.ui.theme.Ink
+import de.koenidv.spheres.ui.theme.Muted
+import de.koenidv.spheres.ui.theme.PixelFontFamily
+import de.koenidv.spheres.ui.theme.SansFontFamily
 import androidx.core.app.ActivityCompat
 import androidx.core.view.WindowCompat
 import androidx.credentials.CredentialManager
@@ -143,6 +183,11 @@ actual fun haptic(durationMs: Int) {
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
 
 actual fun randomUuid(): String = UUID.randomUUID().toString()
+
+actual fun sha256Hex(input: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+    return digest.joinToString("") { "%02x".format(it) }
+}
 
 actual object PlatformStorage {
     private const val PREFS_NAME = "spheres_prefs"
@@ -375,6 +420,157 @@ class NotificationActionReceiver : BroadcastReceiver() {
     }
 }
 
+actual object PlatformPhoneIntegration {
+    actual fun isSupported(): Boolean = true
+
+    actual fun isGranted(): Boolean {
+        val context = AndroidPlatformContext.applicationContext
+        return context.checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+    }
+
+    actual suspend fun requestPermission(): Boolean {
+        if (isGranted()) return true
+        val activity = AndroidPlatformContext.currentActivity ?: return false
+        val permissions = arrayOf(
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_CONTACTS
+        )
+        ActivityCompat.requestPermissions(activity, permissions, 1002)
+        for (i in 0 until 20) {
+            delay(500)
+            if (isGranted()) return true
+        }
+        return isGranted()
+    }
+
+    actual fun fetchCallsLongerThan(minDurationSeconds: Long, sinceMillis: Long): List<PhoneCallRecord> {
+        if (!isGranted()) return emptyList()
+        val context = AndroidPlatformContext.applicationContext
+        val canReadContacts =
+            context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        val results = mutableListOf<PhoneCallRecord>()
+        val projection = arrayOf(
+            CallLog.Calls._ID,
+            CallLog.Calls.NUMBER,
+            CallLog.Calls.CACHED_NAME,
+            CallLog.Calls.DATE,
+            CallLog.Calls.DURATION,
+            CallLog.Calls.TYPE,
+        )
+        val selection =
+            "${CallLog.Calls.DURATION} > ? AND ${CallLog.Calls.DATE} > ? AND ${CallLog.Calls.TYPE} IN (${CallLog.Calls.INCOMING_TYPE}, ${CallLog.Calls.OUTGOING_TYPE})"
+        val selectionArgs = arrayOf(minDurationSeconds.toString(), sinceMillis.toString())
+
+        try {
+            context.contentResolver.query(
+                CallLog.Calls.CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                "${CallLog.Calls.DATE} ASC"
+            )?.use { cursor ->
+                val idIdx = cursor.getColumnIndex(CallLog.Calls._ID)
+                val numberIdx = cursor.getColumnIndex(CallLog.Calls.NUMBER)
+                val nameIdx = cursor.getColumnIndex(CallLog.Calls.CACHED_NAME)
+                val dateIdx = cursor.getColumnIndex(CallLog.Calls.DATE)
+                val durationIdx = cursor.getColumnIndex(CallLog.Calls.DURATION)
+
+                while (cursor.moveToNext()) {
+                    val id = if (idIdx >= 0) cursor.getString(idIdx) else null
+                    val number = if (numberIdx >= 0) cursor.getString(numberIdx) else null
+                    var contactName = if (nameIdx >= 0) cursor.getString(nameIdx)?.takeIf { it.isNotBlank() } else null
+                    var contactId: String? = null
+                    val startedAt = if (dateIdx >= 0) cursor.getLong(dateIdx) else 0L
+                    val durationSeconds = if (durationIdx >= 0) cursor.getLong(durationIdx) else 0L
+
+                    if (canReadContacts && !number.isNullOrBlank()) {
+                        val lookup = lookupContactByNumber(context, number)
+                        if (lookup != null) {
+                            contactId = lookup.first
+                            if (contactName == null) {
+                                contactName = lookup.second
+                            }
+                        }
+                    }
+
+                    if (!id.isNullOrBlank() && startedAt > 0L) {
+                        results.add(
+                            PhoneCallRecord(
+                                id = id,
+                                number = number,
+                                contactId = contactId,
+                                contactName = contactName,
+                                startedAt = startedAt,
+                                durationSeconds = durationSeconds,
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: SecurityException) {
+            return emptyList()
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        return results
+    }
+
+    private fun lookupContactByNumber(context: Context, phoneNumber: String): Pair<String?, String?>? {
+        return try {
+            val uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(phoneNumber)
+            )
+            context.contentResolver.query(
+                uri,
+                arrayOf(
+                    ContactsContract.PhoneLookup.LOOKUP_KEY,
+                    ContactsContract.PhoneLookup.DISPLAY_NAME
+                ),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val key = cursor.getString(0)?.takeIf { it.isNotBlank() }
+                    val name = cursor.getString(1)?.takeIf { it.isNotBlank() }
+                    key to name
+                } else {
+                    null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    actual fun getPhoneNumbersForContact(contactId: String): List<String> {
+        val context = AndroidPlatformContext.applicationContext
+        if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return emptyList()
+        }
+        val numbers = mutableListOf<String>()
+        try {
+            context.contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+                "${ContactsContract.Contacts.LOOKUP_KEY} = ? OR ${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
+                arrayOf(contactId, contactId),
+                null
+            )?.use { c ->
+                val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                while (c.moveToNext()) {
+                    val num = if (numIdx >= 0) c.getString(numIdx)?.trim()?.ifEmpty { null } else null
+                    if (num != null) numbers.add(num)
+                }
+            }
+        } catch (_: SecurityException) {
+        } catch (_: Exception) {
+        }
+        return numbers.distinct()
+    }
+}
+
 actual fun shareJsonFile(filename: String, jsonContent: String) {
     try {
         val context = AndroidPlatformContext.applicationContext
@@ -465,20 +661,77 @@ actual suspend fun signInWithAppleNative(): AppleSignInCredential =
 actual fun appleLogoBitmap(): ImageBitmap? = null
 
 @Composable
-actual fun rememberContactPickerLauncher(onPicked: (List<PickedContact>) -> Unit): () -> Unit {
+actual fun rememberContactPickerLauncher(
+    allowMultiple: Boolean,
+    onPicked: (List<PickedContact>) -> Unit,
+): () -> Unit {
     val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickContact()
-    ) { uri ->
-        if (uri != null) {
-            val contacts = resolveContact(context, uri)
-            if (contacts.isNotEmpty()) {
-                onPicked(contacts)
+    val scope = rememberCoroutineScope()
+
+    if (!allowMultiple) {
+        val launcher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickContact()
+        ) { uri ->
+            if (uri != null) {
+                val contacts = resolveContact(context, uri)
+                if (contacts.isNotEmpty()) {
+                    onPicked(contacts)
+                }
             }
         }
+        return remember(launcher) {
+            { launcher.launch(null) }
+        }
     }
-    return remember(launcher) {
-        { launcher.launch(null) }
+
+    var showDialog by remember { mutableStateOf(false) }
+    var allContacts by remember { mutableStateOf<List<ContactRow>>(emptyList()) }
+
+    val openDialog = {
+        scope.launch {
+            allContacts = withContext(Dispatchers.IO) { loadContactRows(context) }
+            showDialog = true
+        }
+    }
+
+    val permLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            openDialog()
+        }
+    }
+
+    if (showDialog) {
+        MultiContactPickerDialog(
+            contacts = allContacts,
+            onDismiss = { showDialog = false },
+            onConfirm = { selected ->
+                showDialog = false
+                if (selected.isNotEmpty()) {
+                    scope.launch {
+                        val resolved = withContext(Dispatchers.IO) {
+                            selected.map { row ->
+                                readContactDetails(context, row.rawId, row.lookupKey, row.displayName)
+                            }
+                        }
+                        if (resolved.isNotEmpty()) {
+                            onPicked(resolved)
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    return remember(permLauncher) {
+        {
+            if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                openDialog()
+            } else {
+                permLauncher.launch(Manifest.permission.READ_CONTACTS)
+            }
+        }
     }
 }
 
@@ -569,42 +822,282 @@ private fun encodeSquareAvatarJpeg(context: Context, uri: Uri): ByteArray? {
     }
 }
 
+private data class ContactRow(
+    val rawId: String,
+    val lookupKey: String?,
+    val displayName: String,
+)
+
+private fun loadContactRows(context: Context): List<ContactRow> {
+    val rows = mutableListOf<ContactRow>()
+    try {
+        context.contentResolver.query(
+            ContactsContract.Contacts.CONTENT_URI,
+            arrayOf(
+                ContactsContract.Contacts._ID,
+                ContactsContract.Contacts.LOOKUP_KEY,
+                ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
+            ),
+            "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} IS NOT NULL",
+            null,
+            "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} COLLATE NOCASE ASC"
+        )?.use { cursor ->
+            val idIdx = cursor.getColumnIndex(ContactsContract.Contacts._ID)
+            val keyIdx = cursor.getColumnIndex(ContactsContract.Contacts.LOOKUP_KEY)
+            val nameIdx = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
+            while (cursor.moveToNext()) {
+                val rawId = if (idIdx >= 0) cursor.getString(idIdx) else null
+                val lookupKey = if (keyIdx >= 0) cursor.getString(keyIdx)?.takeIf { it.isNotBlank() } else null
+                val name = if (nameIdx >= 0) cursor.getString(nameIdx)?.takeIf { it.isNotBlank() } else null
+                if (!rawId.isNullOrBlank() && !name.isNullOrBlank()) {
+                    rows.add(ContactRow(rawId = rawId, lookupKey = lookupKey, displayName = name))
+                }
+            }
+        }
+    } catch (_: SecurityException) {
+    } catch (_: Exception) {
+    }
+    return rows
+}
+
+@Composable
+private fun MultiContactPickerDialog(
+    contacts: List<ContactRow>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<ContactRow>) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    val filtered = remember(contacts, query) {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) contacts else contacts.filter { it.displayName.lowercase().contains(q) }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        PixelPanel(
+            color = Color.White,
+            raised = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 420.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Import contacts",
+                    style = TextStyle(
+                        fontFamily = PixelFontFamily(),
+                        fontSize = 18.sp,
+                        color = Ink
+                    )
+                )
+                PixelTextInput(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "Search contacts"
+                )
+                if (filtered.isEmpty()) {
+                    Text(
+                        text = if (contacts.isEmpty()) "No contacts found" else "No matching contacts",
+                        style = TextStyle(
+                            fontFamily = SansFontFamily(),
+                            fontSize = 14.sp,
+                            color = Muted
+                        ),
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(filtered, key = { it.rawId }) { row ->
+                            val checked = row.rawId in selectedIds
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(PxClipShape)
+                                    .clickable {
+                                        selectedIds = if (checked) selectedIds - row.rawId else selectedIds + row.rawId
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(PxClipShape)
+                                        .background(if (checked) Ink else Ink.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (checked) {
+                                        PixelIcon(name = IconName.CHECK, size = 14.dp, tint = Color.White)
+                                    }
+                                }
+                                Text(
+                                    text = row.displayName,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = TextStyle(
+                                        fontFamily = SansFontFamily(),
+                                        fontSize = 15.sp,
+                                        color = Ink
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PixelButton(
+                        text = "Cancel",
+                        variant = ButtonVariant.SECONDARY,
+                        size = ButtonSize.MD,
+                        modifier = Modifier.weight(1f),
+                        onClick = onDismiss
+                    )
+                    PixelButton(
+                        text = if (selectedIds.isEmpty()) "Import" else "Import (${selectedIds.size})",
+                        variant = ButtonVariant.PRIMARY,
+                        size = ButtonSize.MD,
+                        enabled = selectedIds.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onConfirm(contacts.filter { it.rawId in selectedIds })
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
 private fun resolveContact(context: Context, contactUri: Uri): List<PickedContact> {
     var name: String? = null
-    var contactId: String? = null
+    var rawId: String? = null
+    var lookupKey: String? = null
     val cr = context.contentResolver
-    cr.query(contactUri, arrayOf(ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME), null, null, null)?.use { cursor ->
+    cr.query(
+        contactUri,
+        arrayOf(
+            ContactsContract.Contacts._ID,
+            ContactsContract.Contacts.LOOKUP_KEY,
+            ContactsContract.Contacts.DISPLAY_NAME
+        ),
+        null,
+        null,
+        null
+    )?.use { cursor ->
         if (cursor.moveToFirst()) {
             val idIdx = cursor.getColumnIndex(ContactsContract.Contacts._ID)
+            val keyIdx = cursor.getColumnIndex(ContactsContract.Contacts.LOOKUP_KEY)
             val nameIdx = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
-            if (idIdx >= 0) contactId = cursor.getString(idIdx)
+            if (idIdx >= 0) rawId = cursor.getString(idIdx)
+            if (keyIdx >= 0) lookupKey = cursor.getString(keyIdx)?.takeIf { it.isNotBlank() }
             if (nameIdx >= 0) name = cursor.getString(nameIdx)
         }
     }
 
-    if (name.isNullOrBlank()) return emptyList()
+    val safeName = name?.takeIf { it.isNotBlank() } ?: return emptyList()
+    val safeId = rawId ?: return listOf(PickedContact(name = safeName, contactId = lookupKey))
+    return listOf(readContactDetails(context, safeId, lookupKey, safeName))
+}
 
+private fun readContactDetails(
+    context: Context,
+    rawId: String,
+    lookupKey: String?,
+    displayName: String,
+): PickedContact {
+    val cr = context.contentResolver
     var city: String? = null
-    if (contactId != null) {
-        try {
-            val postalCursor = cr.query(
-                ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_URI,
-                arrayOf(ContactsContract.CommonDataKinds.StructuredPostal.CITY),
-                "${ContactsContract.CommonDataKinds.StructuredPostal.CONTACT_ID} = ?",
-                arrayOf(contactId),
-                null
-            )
-            postalCursor?.use { c ->
-                if (c.moveToFirst()) {
-                    val cityIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.StructuredPostal.CITY)
-                    if (cityIdx >= 0) city = c.getString(cityIdx)
-                }
+    var address: String? = null
+    var country: String? = null
+    var birthday: Birthday? = null
+    val phoneNumbers = mutableListOf<String>()
+
+    try {
+        cr.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+            "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
+            arrayOf(rawId),
+            null
+        )?.use { c ->
+            val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            while (c.moveToNext()) {
+                val num = if (numIdx >= 0) c.getString(numIdx)?.trim()?.ifEmpty { null } else null
+                if (num != null) phoneNumbers.add(num)
             }
-        } catch (_: SecurityException) {
         }
+    } catch (_: SecurityException) {
     }
 
-    return listOf(PickedContact(name = name ?: "Contact", city = city))
+    try {
+        cr.query(
+            ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_URI,
+            arrayOf(
+                ContactsContract.CommonDataKinds.StructuredPostal.STREET,
+                ContactsContract.CommonDataKinds.StructuredPostal.CITY,
+                ContactsContract.CommonDataKinds.StructuredPostal.COUNTRY,
+            ),
+            "${ContactsContract.CommonDataKinds.StructuredPostal.CONTACT_ID} = ?",
+            arrayOf(rawId),
+            null
+        )?.use { c ->
+            if (c.moveToFirst()) {
+                val streetIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.StructuredPostal.STREET)
+                val cityIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.StructuredPostal.CITY)
+                val countryIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.StructuredPostal.COUNTRY)
+                if (streetIdx >= 0) address = c.getString(streetIdx)?.trim()?.ifEmpty { null }
+                if (cityIdx >= 0) city = c.getString(cityIdx)?.trim()?.ifEmpty { null }
+                if (countryIdx >= 0) country = c.getString(countryIdx)?.trim()?.ifEmpty { null }
+            }
+        }
+    } catch (_: SecurityException) {
+    }
+
+    try {
+        cr.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Event.START_DATE),
+            "${ContactsContract.Data.CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ? AND ${ContactsContract.CommonDataKinds.Event.TYPE} = ?",
+            arrayOf(
+                rawId,
+                ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE,
+                ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY.toString()
+            ),
+            null
+        )?.use { c ->
+            if (c.moveToFirst()) {
+                val dateIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Event.START_DATE)
+                if (dateIdx >= 0) {
+                    birthday = parseContactBirthday(c.getString(dateIdx))
+                }
+            }
+        }
+    } catch (_: SecurityException) {
+    }
+
+    return PickedContact(
+        name = displayName,
+        contactId = lookupKey ?: rawId,
+        phoneNumbers = phoneNumbers.distinct(),
+        city = city,
+        address = address,
+        country = country,
+        birthday = birthday,
+    )
 }
 
 @Composable

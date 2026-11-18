@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import de.koenidv.spheres.domain.Birthday
 import de.koenidv.spheres.domain.DEFAULT_UNLIMITED_PRICE
 import de.koenidv.spheres.domain.UNLIMITED_PRODUCT_ID
 import kotlin.coroutines.resume
@@ -41,6 +42,7 @@ import platform.AuthenticationServices.ASWebAuthenticationPresentationContextPro
 import platform.AuthenticationServices.ASWebAuthenticationSession
 import platform.Contacts.CNContact
 import platform.Contacts.CNLabeledValue
+import platform.Contacts.CNPhoneNumber
 import platform.Contacts.CNPostalAddress
 import platform.ContactsUI.CNContactPickerDelegateProtocol
 import platform.ContactsUI.CNContactPickerViewController
@@ -345,6 +347,14 @@ actual object PlatformNotifications {
     }
 }
 
+actual object PlatformPhoneIntegration {
+    actual fun isSupported(): Boolean = false
+    actual fun isGranted(): Boolean = false
+    actual suspend fun requestPermission(): Boolean = false
+    actual fun fetchCallsLongerThan(minDurationSeconds: Long, sinceMillis: Long): List<PhoneCallRecord> = emptyList()
+    actual fun getPhoneNumbersForContact(contactId: String): List<String> = emptyList()
+}
+
 @OptIn(ExperimentalForeignApi::class, kotlinx.cinterop.BetaInteropApi::class)
 actual fun shareJsonFile(filename: String, jsonContent: String) {
     try {
@@ -470,7 +480,7 @@ private fun randomNonce(length: Int = 32): String {
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun sha256Hex(input: String): String {
+actual fun sha256Hex(input: String): String {
     val data = input.encodeToByteArray()
     val digest = UByteArray(CC_SHA256_DIGEST_LENGTH)
     data.usePinned { src ->
@@ -528,46 +538,78 @@ actual fun appleLogoBitmap(): ImageBitmap? {
     return decodeImageBitmap(data.toByteArray())
 }
 
-private class ContactPickerDelegate(
+private fun extractPickedContact(contact: CNContact): PickedContact {
+    val given = contact.givenName
+    val family = contact.familyName
+    val fullName = listOf(given, family).filter { it.isNotBlank() }.joinToString(" ")
+    val name = fullName.ifBlank { "Contact" }
+
+    val postal = (contact.postalAddresses.firstOrNull() as? CNLabeledValue)?.value as? CNPostalAddress
+        ?: (contact.postalAddresses.firstOrNull() as? CNPostalAddress)
+    val city = postal?.city?.takeIf { it.isNotBlank() }
+    val address = postal?.street?.takeIf { it.isNotBlank() }
+    val country = postal?.country?.takeIf { it.isNotBlank() }
+
+    val bdayComp = contact.birthday
+    val birthday = if (bdayComp != null) {
+        val m = bdayComp.month.toInt()
+        val d = bdayComp.day.toInt()
+        val y = bdayComp.year.toInt()
+        if (m in 1..12 && d in 1..31) {
+            Birthday(
+                month = m,
+                day = d,
+                year = if (y in 1901..2100) y else null
+            )
+        } else null
+    } else null
+
+    val phoneNumbers = contact.phoneNumbers.mapNotNull { item ->
+        val labeled = item as? CNLabeledValue
+        val num = (labeled?.value as? CNPhoneNumber)?.stringValue ?: (item as? CNPhoneNumber)?.stringValue
+        num?.trim()?.ifEmpty { null }
+    }.distinct()
+
+    return PickedContact(
+        name = name,
+        contactId = contact.identifier.takeIf { it.isNotBlank() },
+        phoneNumbers = phoneNumbers,
+        city = city,
+        address = address,
+        country = country,
+        birthday = birthday,
+    )
+}
+
+private class MultiContactPickerDelegate(
     private val onPicked: (List<PickedContact>) -> Unit
 ) : NSObject(), CNContactPickerDelegateProtocol {
     override fun contactPicker(picker: CNContactPickerViewController, didSelectContacts: List<*>) {
-        val pickedList = mutableListOf<PickedContact>()
-        for (item in didSelectContacts) {
-            val contact = item as? CNContact ?: continue
-            val given = contact.givenName
-            val family = contact.familyName
-            val fullName = listOf(given, family).filter { it.isNotBlank() }.joinToString(" ")
-            val name = fullName.ifBlank { "Contact" }
-
-            val postal = (contact.postalAddresses.firstOrNull() as? CNLabeledValue)?.value as? CNPostalAddress
-                ?: (contact.postalAddresses.firstOrNull() as? CNPostalAddress)
-            val city = postal?.city?.takeIf { it.isNotBlank() }
-
-            pickedList.add(PickedContact(name = name, city = city))
+        val pickedList = didSelectContacts.mapNotNull { item ->
+            (item as? CNContact)?.let { extractPickedContact(it) }
         }
         if (pickedList.isNotEmpty()) {
             onPicked(pickedList)
         }
     }
+}
 
+private class SingleContactPickerDelegate(
+    private val onPicked: (List<PickedContact>) -> Unit
+) : NSObject(), CNContactPickerDelegateProtocol {
     override fun contactPicker(picker: CNContactPickerViewController, didSelectContact: CNContact) {
-        val given = didSelectContact.givenName
-        val family = didSelectContact.familyName
-        val fullName = listOf(given, family).filter { it.isNotBlank() }.joinToString(" ")
-        val name = fullName.ifBlank { "Contact" }
-
-        val postal = (didSelectContact.postalAddresses.firstOrNull() as? CNLabeledValue)?.value as? CNPostalAddress
-            ?: (didSelectContact.postalAddresses.firstOrNull() as? CNPostalAddress)
-        val city = postal?.city?.takeIf { it.isNotBlank() }
-
-        onPicked(listOf(PickedContact(name = name, city = city)))
+        onPicked(listOf(extractPickedContact(didSelectContact)))
     }
 }
 
 @Composable
-actual fun rememberContactPickerLauncher(onPicked: (List<PickedContact>) -> Unit): () -> Unit {
-    val delegate = remember(onPicked) { ContactPickerDelegate(onPicked) }
+actual fun rememberContactPickerLauncher(
+    allowMultiple: Boolean,
+    onPicked: (List<PickedContact>) -> Unit,
+): () -> Unit {
+    val delegate = remember(allowMultiple, onPicked) {
+        if (allowMultiple) MultiContactPickerDelegate(onPicked) else SingleContactPickerDelegate(onPicked)
+    }
     return remember(delegate) {
         {
             val picker = CNContactPickerViewController().apply {

@@ -39,7 +39,9 @@ fun SheetHost(
         is SheetState.SphereEdit -> if (activeSheet.sphereId != null) "Edit sphere" else "New sphere"
         is SheetState.EventEdit -> "Edit event"
         is SheetState.AvatarEdit -> "Avatar"
+        is SheetState.LocationEdit -> "Location"
         is SheetState.PickPerson -> if (activeSheet.then == LogMode.NOTE) "Note about…" else "Interaction with…"
+        is SheetState.LinkContact -> "Link ${activeSheet.contactName}"
         else -> null
     }
 
@@ -66,7 +68,9 @@ fun SheetHost(
                 is SheetState.SphereEdit -> SphereSheet(sheet = current, onNavigate = onNavigate)
                 is SheetState.EventEdit -> EventSheet(sheet = current, onNavigate = onNavigate)
                 is SheetState.AvatarEdit -> AvatarSheet(sheet = current)
+                is SheetState.LocationEdit -> LocationSheet(sheet = current)
                 is SheetState.PickPerson -> PickPersonSheet(sheet = current)
+                is SheetState.LinkContact -> LinkContactPickPersonSheet(sheet = current)
                 is SheetState.Log -> LogSheet(sheet = current)
                 is SheetState.Paywall -> UnlockSheet(sheet = current)
                 null -> Unit

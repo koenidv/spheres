@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.platform.AndroidPlatformContext
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.delay
@@ -64,6 +65,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         AndroidPlatformContext.currentActivity = this
         handleAuthIntent(intent)
+        SpheresStore.syncPhoneCalls()
         if (AndroidPlatformContext.pendingAuthContinuation != null) {
             lifecycleScope.launch {
                 delay(800)

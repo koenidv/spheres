@@ -12,18 +12,22 @@ import de.koenidv.spheres.domain.EntryKind
 import de.koenidv.spheres.domain.EventLimitStatus
 import de.koenidv.spheres.domain.FREE_CONNECTIONS_LIMIT
 import de.koenidv.spheres.domain.InteractionKind
+import de.koenidv.spheres.domain.MIN_PHONE_CALL_DURATION_SECONDS
 import de.koenidv.spheres.domain.Person
 import de.koenidv.spheres.domain.Quality
 import de.koenidv.spheres.domain.SPHERE_COLORS
 import de.koenidv.spheres.domain.SocialEvent
 import de.koenidv.spheres.domain.Sphere
 import de.koenidv.spheres.domain.UNLIMITED_PRODUCT_ID
+import de.koenidv.spheres.domain.UNLINKED_CALL_NOTIFY_DURATION_SECONDS
 import de.koenidv.spheres.domain.at9
 import de.koenidv.spheres.domain.canAddPerson
 import de.koenidv.spheres.domain.canCreateSphere
 import de.koenidv.spheres.domain.evaluateEventLimitStatus
 import de.koenidv.spheres.domain.firstName
 import de.koenidv.spheres.domain.formatDay
+import de.koenidv.spheres.domain.hashPhoneNumbers
+import de.koenidv.spheres.domain.matchPersonForCall
 import de.koenidv.spheres.domain.parseQuickAdd
 import de.koenidv.spheres.domain.syncReminderSchedule
 import de.koenidv.spheres.domain.toEntryKind
@@ -32,9 +36,11 @@ import de.koenidv.spheres.platform.NotificationActionBridge
 import de.koenidv.spheres.platform.NotificationActionType
 import de.koenidv.spheres.platform.PlatformBilling
 import de.koenidv.spheres.platform.PlatformNotifications
+import de.koenidv.spheres.platform.PlatformPhoneIntegration
 import de.koenidv.spheres.platform.PlatformStorage
 import de.koenidv.spheres.platform.PurchaseOutcome
 import de.koenidv.spheres.platform.RestoreOutcome
+import de.koenidv.spheres.platform.UnlinkedCallPrompt
 import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.platform.haptic
 import de.koenidv.spheres.platform.randomUuid
@@ -72,7 +78,14 @@ sealed interface SheetState {
     data class SphereEdit(val sphereId: String? = null) : SheetState
     data class EventEdit(val eventId: String) : SheetState
     data class AvatarEdit(val personId: String) : SheetState
+    data class LocationEdit(val personId: String) : SheetState
     data class PickPerson(val then: LogMode) : SheetState
+    data class LinkContact(
+        val contactId: String,
+        val contactName: String,
+        val callStartedAt: Long,
+        val durationMinutes: Long,
+    ) : SheetState
     data class Log(val personId: String, val mode: LogMode) : SheetState
     data class Paywall(
         val reason: PaywallReason = PaywallReason.Settings,
@@ -104,6 +117,8 @@ data class AppState(
     val unlimitedPrice: String = DEFAULT_UNLIMITED_PRICE,
     val isPurchasing: Boolean = false,
     val pendingTransfer: PendingTransfer? = null,
+    val phoneIntegrationEnabled: Boolean = false,
+    val unlinkedCallPrompts: List<UnlinkedCallPrompt> = emptyList(),
     val sheet: SheetState? = null,
     val toast: ToastData? = null,
 )
@@ -124,6 +139,24 @@ object SpheresStore {
     private var toastCounter = 0L
 
     init {
+        val phonePref = PlatformStorage.getString("phone_integration_enabled") == "true"
+        val phoneActive = phonePref && PlatformPhoneIntegration.isSupported() && PlatformPhoneIntegration.isGranted()
+        val savedPromptsRaw = PlatformStorage.getString("phone_integration_pending_prompts")
+        val savedPrompts = if (!savedPromptsRaw.isNullOrBlank()) {
+            try {
+                json.decodeFromString<List<UnlinkedCallPrompt>>(savedPromptsRaw)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else emptyList()
+        if (phoneActive || savedPrompts.isNotEmpty()) {
+            _state.update {
+                it.copy(
+                    phoneIntegrationEnabled = phoneActive,
+                    unlinkedCallPrompts = savedPrompts
+                )
+            }
+        }
         loadCachedAuthAndData()
         if (BuildFlags.PAYWALL_ENABLED) {
             PlatformBilling.initialize { verified, platform, purchaseToken ->
@@ -282,6 +315,7 @@ object SpheresStore {
             migrate()
             syncReminderSchedule(normPeople, remoteEntries)
         }
+        syncPhoneCalls()
     }
 
     private fun migrate() {
@@ -818,14 +852,25 @@ object SpheresStore {
         birthday: Birthday? = null,
         note: String = "",
         city: String? = null,
+        address: String? = null,
+        country: String? = null,
+        contactId: String? = null,
+        contactName: String? = null,
+        phoneNumbers: List<String> = emptyList(),
     ): String {
         val id = randomUuid()
+        val uid = state.value.user?.uid
+        val hashes = if (uid != null && phoneNumbers.isNotEmpty()) {
+            hashPhoneNumbers(phoneNumbers, uid)
+        } else emptyList()
         val person = Person(
             id = id,
             name = name.trim(),
             intervalDays = intervalDays,
             sphereIds = sphereIds,
             city = city?.trim()?.ifEmpty { null },
+            address = address?.trim()?.ifEmpty { null },
+            country = country?.trim()?.ifEmpty { null },
             eventIds = eventIds,
             followUpAt = null,
             baseContactAt = baseContactAt,
@@ -835,8 +880,13 @@ object SpheresStore {
             facts = emptyList(),
             snoozedUntil = null,
             dismissedAt = null,
+            contactName = contactName?.trim()?.ifEmpty { null },
+            contactPhoneHashes = hashes,
             createdAt = currentTimeMillis(),
         )
+        if (!contactId.isNullOrBlank()) {
+            setLocalContactId(id, contactId)
+        }
         _state.update { s ->
             val updated = s.people + person
             s.user?.let { u -> PlatformStorage.putString("cache_${u.uid}_people", json.encodeToString(updated)) }
@@ -860,6 +910,32 @@ object SpheresStore {
         scope.launch {
             state.value.user?.let { backend.savePerson(it.uid, updated, it.idToken) }
             syncReminderSchedule(state.value.people, state.value.entries)
+        }
+    }
+
+    private val geocodeAttempted = mutableSetOf<String>()
+    private var geocodeJob: Job? = null
+
+    /** Resolves coordinates for people who only have a typed city, once per session each. */
+    fun geocodeMissingCities() {
+        if (geocodeJob?.isActive == true) return
+        geocodeJob = scope.launch {
+            val pending = state.value.people.filter {
+                !it.city.isNullOrBlank() && it.lat == null && it.id !in geocodeAttempted
+            }
+            for (p in pending) {
+                geocodeAttempted += p.id
+                val query = listOfNotNull(p.address, p.city, p.country).joinToString(", ")
+                val hit = Geocoder.search(query, limit = 1).firstOrNull()
+                if (hit != null) {
+                    updatePerson(p.id) { cur ->
+                        if (cur.city == p.city && cur.lat == null) {
+                            cur.copy(lat = hit.lat, lng = hit.lng, country = cur.country ?: hit.country)
+                        } else cur
+                    }
+                }
+                kotlinx.coroutines.delay(1100)
+            }
         }
     }
 
@@ -1121,5 +1197,183 @@ object SpheresStore {
             entries = s.entries,
         )
         return Json { prettyPrint = true }.encodeToString(payload)
+    }
+
+    fun setPhoneIntegrationEnabled(enabled: Boolean) {
+        val active = enabled && PlatformPhoneIntegration.isSupported() && PlatformPhoneIntegration.isGranted()
+        PlatformStorage.putString("phone_integration_enabled", if (active) "true" else "false")
+        _state.update { it.copy(phoneIntegrationEnabled = active) }
+        if (active) {
+            if (PlatformStorage.getString("phone_integration_last_sync_at") == null) {
+                PlatformStorage.putString(
+                    "phone_integration_last_sync_at",
+                    (currentTimeMillis() - DAY).toString()
+                )
+            }
+            val logged = syncPhoneCalls()
+            if (logged > 0) {
+                showToast("Phone integration enabled · logged $logged call${if (logged == 1) "" else "s"}")
+            } else {
+                showToast("Phone integration enabled")
+            }
+        } else if (!enabled) {
+            showToast("Phone integration disabled")
+        }
+    }
+
+    fun syncPhoneCalls(): Int {
+        val current = state.value
+        if (!current.phoneIntegrationEnabled || !current.dataReady) return 0
+        if (!PlatformPhoneIntegration.isSupported() || !PlatformPhoneIntegration.isGranted()) return 0
+
+        val now = currentTimeMillis()
+        val lastSyncAt = PlatformStorage.getString("phone_integration_last_sync_at")
+            ?.toLongOrNull()
+            ?: (now - DAY)
+
+        val calls = PlatformPhoneIntegration.fetchCallsLongerThan(
+            minDurationSeconds = MIN_PHONE_CALL_DURATION_SECONDS,
+            sinceMillis = lastSyncAt,
+        )
+        if (calls.isEmpty()) return 0
+
+        val processedRaw = PlatformStorage.getString("phone_integration_processed_ids").orEmpty()
+        val processed = processedRaw.split(",").filter { it.isNotBlank() }.toMutableList()
+        val processedSet = processed.toMutableSet()
+        val ignoredContacts = PlatformStorage.getString("phone_integration_ignored_contacts")
+            .orEmpty()
+            .split(",")
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val localContactIds = getLocalContactLinks()
+        val salt = current.user?.uid
+        var loggedCount = 0
+        var maxStartedAt = lastSyncAt
+
+        for (call in calls) {
+            if (call.startedAt > maxStartedAt) {
+                maxStartedAt = call.startedAt
+            }
+            if (!processedSet.add(call.id)) continue
+            processed.add(call.id)
+
+            val person = matchPersonForCall(
+                call = call,
+                people = current.people,
+                localContactIds = localContactIds,
+                salt = salt,
+            )
+            if (person != null) {
+                if (!call.contactId.isNullOrBlank() && localContactIds[person.id] != call.contactId) {
+                    setLocalContactId(person.id, call.contactId)
+                }
+                val durationMinutes = (call.durationSeconds / 60L).coerceAtLeast(1L)
+                logEntry(
+                    personId = person.id,
+                    kind = EntryKind.CALL,
+                    text = "$durationMinutes min call",
+                    at = call.startedAt,
+                )
+                if (person.snoozedUntil != null) {
+                    updatePerson(person.id) { it.copy(snoozedUntil = null) }
+                }
+                loggedCount++
+            } else if (
+                call.durationSeconds >= UNLINKED_CALL_NOTIFY_DURATION_SECONDS &&
+                !call.contactId.isNullOrBlank() &&
+                call.contactId !in ignoredContacts
+            ) {
+                addUnlinkedCallPrompt(
+                    UnlinkedCallPrompt(
+                        contactId = call.contactId,
+                        contactName = call.contactName ?: "Contact",
+                        durationMinutes = (call.durationSeconds / 60L).coerceAtLeast(30L),
+                        callStartedAt = call.startedAt,
+                    )
+                )
+            }
+        }
+
+        val trimmedProcessed = if (processed.size > 500) processed.takeLast(500) else processed
+        PlatformStorage.putString("phone_integration_processed_ids", trimmedProcessed.joinToString(","))
+        PlatformStorage.putString("phone_integration_last_sync_at", maxStartedAt.toString())
+        return loggedCount
+    }
+
+    fun getLocalContactLinks(): Map<String, String> {
+        val uid = state.value.user?.uid ?: return emptyMap()
+        val raw = PlatformStorage.getString("local_contact_links_$uid") ?: return emptyMap()
+        return try {
+            json.decodeFromString<Map<String, String>>(raw)
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun getLocalContactId(personId: String): String? = getLocalContactLinks()[personId]
+
+    private fun setLocalContactId(personId: String, contactId: String?) {
+        val uid = state.value.user?.uid ?: return
+        val map = getLocalContactLinks().toMutableMap()
+        val clean = contactId?.trim()?.ifEmpty { null }
+        if (clean != null) {
+            map[personId] = clean
+        } else {
+            map.remove(personId)
+        }
+        PlatformStorage.putString("local_contact_links_$uid", json.encodeToString(map))
+    }
+
+    private fun addUnlinkedCallPrompt(prompt: UnlinkedCallPrompt) {
+        _state.update { s ->
+            val updated = s.unlinkedCallPrompts.filter { it.contactId != prompt.contactId } + prompt
+            PlatformStorage.putString("phone_integration_pending_prompts", json.encodeToString(updated))
+            s.copy(unlinkedCallPrompts = updated)
+        }
+    }
+
+    fun dismissUnlinkedCallPrompt(contactId: String) {
+        _state.update { s ->
+            val updated = s.unlinkedCallPrompts.filter { it.contactId != contactId }
+            PlatformStorage.putString("phone_integration_pending_prompts", json.encodeToString(updated))
+            s.copy(unlinkedCallPrompts = updated)
+        }
+    }
+
+    fun ignoreUnlinkedContact(contactId: String) {
+        val existing = PlatformStorage.getString("phone_integration_ignored_contacts").orEmpty()
+        val set = existing.split(",").filter { it.isNotBlank() }.toMutableSet()
+        if (set.add(contactId)) {
+            PlatformStorage.putString("phone_integration_ignored_contacts", set.joinToString(","))
+        }
+        dismissUnlinkedCallPrompt(contactId)
+    }
+
+    fun linkContact(
+        personId: String,
+        contactId: String,
+        contactName: String?,
+        phoneNumbers: List<String> = emptyList(),
+    ) {
+        val cleanId = contactId.trim().ifEmpty { return }
+        val cleanName = contactName?.trim()?.ifEmpty { null }
+        setLocalContactId(personId, cleanId)
+        dismissUnlinkedCallPrompt(cleanId)
+        val numbers = phoneNumbers.ifEmpty { PlatformPhoneIntegration.getPhoneNumbersForContact(cleanId) }
+        val uid = state.value.user?.uid
+        val hashes = if (uid != null && numbers.isNotEmpty()) hashPhoneNumbers(numbers, uid) else emptyList()
+        updatePerson(personId) { p ->
+            p.copy(
+                contactName = cleanName,
+                contactPhoneHashes = (p.contactPhoneHashes + hashes).distinct()
+            )
+        }
+    }
+
+    fun unlinkContact(personId: String) {
+        setLocalContactId(personId, null)
+        updatePerson(personId) { it.copy(contactName = null, contactPhoneHashes = emptyList()) }
+        showToast("Contact unlinked")
     }
 }

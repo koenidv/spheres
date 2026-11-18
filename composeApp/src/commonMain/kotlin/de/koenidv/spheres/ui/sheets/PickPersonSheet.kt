@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.ContactScore
+import de.koenidv.spheres.domain.EntryKind
 import de.koenidv.spheres.domain.Person
 import de.koenidv.spheres.domain.contactScore
 import de.koenidv.spheres.domain.entriesByPerson
@@ -42,6 +43,41 @@ import de.koenidv.spheres.ui.theme.SansFontFamily
 @Composable
 fun PickPersonSheet(
     sheet: SheetState.PickPerson
+) {
+    PersonPickerList(
+        onSelect = { person ->
+            SpheresStore.openSheet(
+                SheetState.Log(
+                    personId = person.id,
+                    mode = sheet.then
+                )
+            )
+        }
+    )
+}
+
+@Composable
+fun LinkContactPickPersonSheet(
+    sheet: SheetState.LinkContact
+) {
+    PersonPickerList(
+        onSelect = { person ->
+            SpheresStore.linkContact(person.id, sheet.contactId, sheet.contactName)
+            SpheresStore.logEntry(
+                personId = person.id,
+                kind = EntryKind.CALL,
+                text = "${sheet.durationMinutes} min call",
+                at = sheet.callStartedAt,
+            )
+            SpheresStore.showToast("Linked ${sheet.contactName} to ${person.name}")
+            SpheresStore.closeSheet()
+        }
+    )
+}
+
+@Composable
+private fun PersonPickerList(
+    onSelect: (Person) -> Unit
 ) {
     val state by SpheresStore.state.collectAsState()
     val people = state.people
@@ -87,14 +123,7 @@ fun PickPersonSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(PxClipShape)
-                        .clickable {
-                            SpheresStore.openSheet(
-                                SheetState.Log(
-                                    personId = person.id,
-                                    mode = sheet.then
-                                )
-                            )
-                        }
+                        .clickable { onSelect(person) }
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)

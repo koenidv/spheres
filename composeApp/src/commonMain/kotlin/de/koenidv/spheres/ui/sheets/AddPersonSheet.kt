@@ -86,22 +86,49 @@ fun AddPersonSheet(
     var bYear by remember { mutableStateOf("") }
     var note by remember { mutableStateOf(sheet.note ?: "") }
     var city by remember { mutableStateOf("") }
+    var address by remember { mutableStateOf<String?>(null) }
+    var country by remember { mutableStateOf<String?>(null) }
+    var contactId by remember { mutableStateOf<String?>(null) }
+    var contactName by remember { mutableStateOf<String?>(null) }
+    var phoneNumbers by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    val pickContact = rememberContactPickerLauncher { picked ->
+    val pickContact = rememberContactPickerLauncher(allowMultiple = true) { picked ->
         val valid = picked.filter { it.name.isNotBlank() }
         if (valid.size == 1) {
             val c = valid[0]
             name = c.name.trim()
+            contactId = c.contactId
+            contactName = c.name.trim()
+            phoneNumbers = c.phoneNumbers
             if (!c.city.isNullOrBlank() && city.isBlank()) {
                 city = c.city.trim()
             }
+            if (!c.address.isNullOrBlank() && address == null) {
+                address = c.address.trim()
+            }
+            if (!c.country.isNullOrBlank() && country == null) {
+                country = c.country.trim()
+            }
+            c.birthday?.let { b ->
+                if (bMonth == 0 && bDay == 0) {
+                    bMonth = b.month
+                    bDay = b.day
+                    if (b.year != null && bYear.isBlank()) {
+                        bYear = b.year.toString()
+                    }
+                }
+            }
             return@rememberContactPickerLauncher
         }
-        val known = people.map { it.name.trim().lowercase() }.toMutableSet()
+        val knownNames = people.map { it.name.trim().lowercase() }.toMutableSet()
+        val knownContactIds = SpheresStore.getLocalContactLinks().values.toMutableSet()
         val fresh = valid.filter { c ->
+            val cid = c.contactId
+            if (cid != null && cid in knownContactIds) return@filter false
             val key = c.name.trim().lowercase()
-            if (known.contains(key)) false else {
-                known.add(key)
+            if (knownNames.contains(key)) false else {
+                knownNames.add(key)
+                if (cid != null) knownContactIds.add(cid)
                 true
             }
         }
@@ -132,9 +159,16 @@ fun AddPersonSheet(
                         name = c.name.trim(),
                         intervalDays = interval,
                         sphereIds = sphereIds,
-                        city = c.city?.trim()?.ifEmpty { null }
+                        birthday = c.birthday,
+                        city = c.city?.trim()?.ifEmpty { null },
+                        address = c.address?.trim()?.ifEmpty { null },
+                        country = c.country?.trim()?.ifEmpty { null },
+                        contactId = c.contactId,
+                        contactName = c.name.trim(),
+                        phoneNumbers = c.phoneNumbers,
                     )
                 }
+                SpheresStore.geocodeMissingCities()
                 SpheresStore.showToast("Added ${currentBatch.size} ${if (currentBatch.size == 1) "connection" else "connections"}")
                 SpheresStore.closeSheet()
             }
@@ -163,8 +197,16 @@ fun AddPersonSheet(
                         sphereIds = sphereIds,
                         birthday = birthday,
                         note = note.trim(),
-                        city = city.trim().ifEmpty { null }
+                        city = city.trim().ifEmpty { null },
+                        address = address,
+                        country = country,
+                        contactId = contactId,
+                        contactName = contactName,
+                        phoneNumbers = phoneNumbers,
                     )
+                    if (city.isNotBlank()) {
+                        SpheresStore.geocodeMissingCities()
+                    }
                     SpheresStore.showToast("Added $n")
                     SpheresStore.closeSheet()
                 }
