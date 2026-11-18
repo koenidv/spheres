@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +43,8 @@ import de.koenidv.spheres.domain.inSphere
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.domain.relationshipQuality
 import de.koenidv.spheres.ui.components.DueStatus
+import de.koenidv.spheres.ui.components.IconName
+import de.koenidv.spheres.ui.components.PixelIconButton
 import de.koenidv.spheres.ui.components.PersonMenu
 import de.koenidv.spheres.ui.components.PersonMenuTarget
 import de.koenidv.spheres.ui.components.PxClipShape
@@ -71,7 +74,7 @@ fun RadarScreen(
 
     val tracked = remember(people) { people.filter { it.intervalDays != null } }
     val fact = remember(tracked) { funFact(tracked) }
-    val filterSphere = spheres.firstOrNull { it.id == filterSphereId }
+    val filterSphere = remember(spheres, filterSphereId) { spheres.firstOrNull { it.id == filterSphereId } }
     val shownPeople = remember(tracked, filterSphere, events) {
         if (filterSphere != null) {
             tracked.filter { inSphere(it, filterSphere.id, events) }
@@ -132,21 +135,32 @@ fun RadarScreen(
         intervalInfo(targetPerson?.intervalDays).color
     }
 
+    val density = LocalDensity.current.density
+    val scrollState = rememberScrollState()
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
     ) {
         val minRadarHeightDp = (maxHeight.value - 160f).coerceAtLeast(360f)
+        val viewportHeightDp = maxHeight.value
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .statusBarsPadding()
         ) {
             ScreenHeader(
                 title = "Connections",
-                subtitle = subtitle
+                subtitle = subtitle,
+                right = {
+                    PixelIconButton(
+                        icon = IconName.SETTINGS,
+                        onClick = { onNavigate("/settings") },
+                        tint = Ink.copy(alpha = 0.4f)
+                    )
+                }
             )
 
             if (spheres.isNotEmpty()) {
@@ -225,6 +239,8 @@ fun RadarScreen(
                     )
                 },
                 minHeightDp = minRadarHeightDp,
+                scrollOffsetDp = { scrollState.value / density },
+                viewportHeightDp = viewportHeightDp,
                 modifier = Modifier.fillMaxWidth()
             )
         }

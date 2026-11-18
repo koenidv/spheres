@@ -28,10 +28,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -263,10 +264,17 @@ fun Radar(
     onAddClick: (intervalDays: Int) -> Unit,
     modifier: Modifier = Modifier,
     minHeightDp: Float = 0f,
-    intervals: List<RadarInterval> = DEFAULT_RADAR_INTERVALS
+    intervals: List<RadarInterval> = DEFAULT_RADAR_INTERVALS,
+    scrollOffsetDp: () -> Float = { 0f },
+    viewportHeightDp: Float = Float.MAX_VALUE,
 ) {
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current.density
+    val scrollBucket by remember(scrollOffsetDp, viewportHeightDp) {
+        derivedStateOf { (scrollOffsetDp() / 160f).toInt() }
+    }
+    val visTopDp = scrollBucket * 160f - 240f
+    val visBottomDp = scrollBucket * 160f + viewportHeightDp + 240f
 
     val bandsWithPeople = remember(people, intervals) {
         val map = intervals.associateWith { interval ->
@@ -329,137 +337,130 @@ fun Radar(
                         val bl = layout.bands[si]
                         val color = parseHexColor(band.colorHex)
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (bl.arcTop - 11f).dp),
-                            contentAlignment = Alignment.TopCenter
-                        ) {
-                            SpherePill(label = band.label, color = color)
-                        }
+                        key(band.days) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = (bl.arcTop - 11f).dp),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
+                                SpherePill(label = band.label, color = color)
+                            }
 
-                        bl.cells.forEach { c ->
-                            val person = if (c.ghost) null else personList.getOrNull(c.index)
-                            val cellLeftDp = c.x - layout.cellW / 2f
-                            val cellTopDp = c.y
+                            bl.cells.forEach { c ->
+                                if (c.y + CELL_H < visTopDp || c.y > visBottomDp) return@forEach
+                                val person = if (c.ghost) null else personList.getOrNull(c.index)
+                                val cellLeftDp = c.x - layout.cellW / 2f
+                                val cellTopDp = c.y
 
-                            if (person == null) {
-                                val interactionSource = remember { MutableInteractionSource() }
-                                val isPressed by interactionSource.collectIsPressedAsState()
-                                val pressOffset = if (isPressed) 2.dp else 0.dp
+                                key(person?.id ?: "ghost-${band.days}-${c.index}") {
+                                    if (person == null) {
+                                        val interactionSource = remember { MutableInteractionSource() }
+                                        val isPressed by interactionSource.collectIsPressedAsState()
+                                        val pressOffset = if (isPressed) 2.dp else 0.dp
 
-                                Box(
-                                    modifier = Modifier
-                                        .offset(x = cellLeftDp.dp, y = cellTopDp.dp)
-                                        .size(layout.cellW.dp, CELL_H.dp)
-                                        .clickable(
-                                            interactionSource = interactionSource,
-                                            indication = null,
-                                            onClick = { onAddClick(band.days) }
-                                        )
-                                        .padding(top = 2.dp),
-                                    contentAlignment = Alignment.TopCenter
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Box(
                                             modifier = Modifier
-                                                .size(RADAR_AVATAR_SIZE)
-                                                .offset(y = pressOffset)
-                                                .background(Color.White.copy(alpha = if (isPressed) 0.8f else 0.5f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                                val dash = 4.dp.toPx()
-                                                val strokeW = 2.dp.toPx()
-                                                var x = 0f
-                                                while (x < size.width) {
-                                                    val segW = min(dash, size.width - x)
-                                                    drawRect(color, Offset(x, 0f), Size(segW, strokeW))
-                                                    drawRect(color, Offset(x, size.height - strokeW), Size(segW, strokeW))
-                                                    x += dash * 2f
-                                                }
-                                                var y = 0f
-                                                while (y < size.height) {
-                                                    val segH = min(dash, size.height - y)
-                                                    drawRect(color, Offset(0f, y), Size(strokeW, segH))
-                                                    drawRect(color, Offset(size.width - strokeW, y), Size(strokeW, segH))
-                                                    y += dash * 2f
-                                                }
-                                            }
-                                            PixelIcon(name = IconName.PLUS, size = 24.dp, tint = color)
-                                        }
-                                        Text(
-                                            text = "Add",
-                                            style = TextStyle(
-                                                fontFamily = PixelFontFamily(),
-                                                fontSize = 13.sp,
-                                                lineHeight = 16.sp,
-                                                color = Ink.copy(alpha = 0.4f)
-                                            ),
-                                            modifier = Modifier.padding(top = 4.dp)
-                                        )
-                                    }
-                                }
-                            } else {
-                                var anchorBounds by remember { mutableStateOf(floatArrayOf(0f, 0f, 0f, 0f)) }
-                                val interactionSource = remember { MutableInteractionSource() }
-                                val isPressed by interactionSource.collectIsPressedAsState()
-                                val pressOffset = if (isPressed) 2.dp else 0.dp
-
-                                Box(
-                                    modifier = Modifier
-                                        .offset(x = cellLeftDp.dp, y = cellTopDp.dp)
-                                        .size(layout.cellW.dp, CELL_H.dp)
-                                        .onGloballyPositioned { coords ->
-                                            val bounds = coords.boundsInWindow()
-                                            anchorBounds = floatArrayOf(
-                                                bounds.left,
-                                                bounds.top,
-                                                bounds.width,
-                                                bounds.height
-                                            )
-                                        }
-                                        .pointerInput(person.id) {
-                                            detectTapGestures(
-                                                onLongPress = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    onPersonLongPress(
-                                                        person.id,
-                                                        anchorBounds[0],
-                                                        anchorBounds[1],
-                                                        anchorBounds[2],
-                                                        anchorBounds[3]
-                                                    )
-                                                },
-                                                onTap = {
-                                                    onPersonClick(person.id)
-                                                }
-                                            )
-                                        }
-                                        .padding(top = 2.dp),
-                                    contentAlignment = Alignment.TopCenter
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Box(modifier = Modifier.size(RADAR_AVATAR_SIZE)) {
-                                            Box(modifier = Modifier.offset(y = pressOffset)) {
-                                                AvatarRender(
-                                                    name = person.name,
-                                                    colorHex = band.colorHex,
-                                                    config = person.avatar,
-                                                    photoUrl = person.photoUrl,
-                                                    size = RADAR_AVATAR_SIZE
+                                                .offset(x = cellLeftDp.dp, y = cellTopDp.dp)
+                                                .size(layout.cellW.dp, CELL_H.dp)
+                                                .clickable(
+                                                    interactionSource = interactionSource,
+                                                    indication = null,
+                                                    onClick = { onAddClick(band.days) }
                                                 )
-                                                if (person.status != DueStatus.OK) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .align(Alignment.TopEnd)
-                                                            .offset(x = 4.dp, y = (-4).dp)
-                                                    ) {
-                                                        RadarBadge(status = person.status)
+                                                .padding(top = 2.dp),
+                                            contentAlignment = Alignment.TopCenter
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(RADAR_AVATAR_SIZE)
+                                                        .offset(y = pressOffset)
+                                                        .background(Color.White.copy(alpha = if (isPressed) 0.8f else 0.5f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                                        val dash = 4.dp.toPx()
+                                                        val strokeW = 2.dp.toPx()
+                                                        var x = 0f
+                                                        while (x < size.width) {
+                                                            val segW = min(dash, size.width - x)
+                                                            drawRect(color, Offset(x, 0f), Size(segW, strokeW))
+                                                            drawRect(color, Offset(x, size.height - strokeW), Size(segW, strokeW))
+                                                            x += dash * 2f
+                                                        }
+                                                        var y = 0f
+                                                        while (y < size.height) {
+                                                            val segH = min(dash, size.height - y)
+                                                            drawRect(color, Offset(0f, y), Size(strokeW, segH))
+                                                            drawRect(color, Offset(size.width - strokeW, y), Size(strokeW, segH))
+                                                            y += dash * 2f
+                                                        }
+                                                    }
+                                                    PixelIcon(name = IconName.PLUS, size = 24.dp, tint = color)
+                                                }
+                                                Text(
+                                                    text = "Add",
+                                                    style = TextStyle(
+                                                        fontFamily = PixelFontFamily(),
+                                                        fontSize = 13.sp,
+                                                        lineHeight = 16.sp,
+                                                        color = Ink.copy(alpha = 0.4f)
+                                                    ),
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        val coordsRef = remember(person.id) { arrayOfNulls<LayoutCoordinates>(1) }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .offset(x = cellLeftDp.dp, y = cellTopDp.dp)
+                                                .size(layout.cellW.dp, CELL_H.dp)
+                                                .onGloballyPositioned { coords ->
+                                                    coordsRef[0] = coords
+                                                }
+                                                .pointerInput(person.id) {
+                                                    detectTapGestures(
+                                                        onLongPress = {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            val bounds = coordsRef[0]?.boundsInWindow()
+                                                            onPersonLongPress(
+                                                                person.id,
+                                                                bounds?.left ?: 0f,
+                                                                bounds?.top ?: 0f,
+                                                                bounds?.width ?: 0f,
+                                                                bounds?.height ?: 0f
+                                                            )
+                                                        },
+                                                        onTap = {
+                                                            onPersonClick(person.id)
+                                                        }
+                                                    )
+                                                }
+                                                .padding(top = 2.dp),
+                                            contentAlignment = Alignment.TopCenter
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Box(modifier = Modifier.size(RADAR_AVATAR_SIZE)) {
+                                                    AvatarRender(
+                                                        name = person.name,
+                                                        colorHex = band.colorHex,
+                                                        config = person.avatar,
+                                                        photoUrl = person.photoUrl,
+                                                        size = RADAR_AVATAR_SIZE
+                                                    )
+                                                    if (person.status != DueStatus.OK) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .offset(x = 4.dp, y = (-4).dp)
+                                                        ) {
+                                                            RadarBadge(status = person.status)
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        }
 
                                         Box(modifier = Modifier.padding(top = 4.dp)) {
                                             HealthBar(score = person.score)
@@ -501,6 +502,7 @@ fun Radar(
                                     }
                                 }
                             }
+                        }
                         }
                     }
 
@@ -558,6 +560,7 @@ fun Radar(
             }
         }
     }
+}
 
 private val SKELETON_BANDS = listOf(Color(0xFFF6F6F6), Color(0xFFF0F0F0), Color(0xFFEAEAEA))
 
