@@ -1,7 +1,6 @@
 package de.koenidv.spheres.ui.sheets
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,8 +21,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -128,6 +127,7 @@ private fun PersonPickerList(
     val entries = state.entries
     var q by remember { mutableStateOf("") }
     var selectedIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    val selectedIdSet = remember(selectedIds) { selectedIds.toSet() }
     val inSelectionMode = allowMultiSelect && selectedIds.isNotEmpty()
 
     val selectedPeople = remember(selectedIds, people) {
@@ -135,20 +135,21 @@ private fun PersonPickerList(
         selectedIds.mapNotNull { byId[it] }
     }
 
-    val list = remember(people, entries, q) {
+    val sortedPeople = remember(people, entries) {
         val by = entriesByPerson(entries)
         val now = currentTimeMillis()
-        val needle = q.trim().lowercase()
         people
-            .filter { needle.isEmpty() || it.name.lowercase().contains(needle) }
-            .map { p ->
-                val cs = contactScore(p, by[p.id], now)
-                p to cs
-            }
+            .map { p -> p to contactScore(p, by[p.id], now) }
             .sortedWith(
                 compareByDescending<Pair<Person, ContactScore?>> { it.second?.priority ?: -1.0 }
                     .thenBy { it.first.name }
             )
+    }
+
+    val list = remember(sortedPeople, q) {
+        val needle = q.trim().lowercase()
+        if (needle.isEmpty()) sortedPeople
+        else sortedPeople.filter { it.first.name.lowercase().contains(needle) }
     }
 
     fun togglePerson(id: String) {
@@ -231,21 +232,18 @@ private fun PersonPickerList(
             }
         }
 
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState())
                 .padding(top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            list.forEach { (person, cs) ->
+            items(list, key = { it.first.id }) { (person, cs) ->
                 val info = intervalInfo(person.intervalDays)
                 val accent = parseHexColor(info.color)
-                val isSelected = person.id in selectedIds
-                val rowBg by animateColorAsState(
-                    targetValue = if (isSelected) tintColor(accent, 18) else Color.Transparent
-                )
+                val isSelected = person.id in selectedIdSet
+                val rowBg = if (isSelected) tintColor(accent, 18) else Color.Transparent
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -323,18 +321,20 @@ private fun PersonPickerList(
             }
 
             if (list.isEmpty()) {
-                Text(
-                    text = if (people.isEmpty()) "No connections yet." else "No matches.",
-                    style = TextStyle(
-                        fontFamily = SansFontFamily(),
-                        fontSize = 15.sp,
-                        color = Muted,
-                        textAlign = TextAlign.Center
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp)
-                )
+                item(key = "empty") {
+                    Text(
+                        text = if (people.isEmpty()) "No connections yet." else "No matches.",
+                        style = TextStyle(
+                            fontFamily = SansFontFamily(),
+                            fontSize = 15.sp,
+                            color = Muted,
+                            textAlign = TextAlign.Center
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp)
+                    )
+                }
             }
         }
 
