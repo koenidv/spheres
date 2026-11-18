@@ -87,7 +87,11 @@ sealed interface SheetState {
         val callStartedAt: Long,
         val durationMinutes: Long,
     ) : SheetState
-    data class Log(val personId: String, val mode: LogMode) : SheetState
+    data class Log(
+        val personId: String,
+        val mode: LogMode,
+        val personIds: List<String> = listOf(personId),
+    ) : SheetState
     data class Paywall(
         val reason: PaywallReason = PaywallReason.Settings,
         val returnTo: SheetState? = null,

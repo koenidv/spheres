@@ -1,12 +1,20 @@
 package de.koenidv.spheres.ui.sheets
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -14,7 +22,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -28,6 +39,7 @@ import de.koenidv.spheres.domain.Gift
 import de.koenidv.spheres.domain.InteractionKind
 import de.koenidv.spheres.domain.Quality
 import de.koenidv.spheres.domain.firstName
+import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.domain.toEntryKind
 import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.platform.randomUuid
@@ -36,6 +48,7 @@ import de.koenidv.spheres.ui.components.Chip
 import de.koenidv.spheres.ui.components.Field
 import de.koenidv.spheres.ui.components.IconName
 import de.koenidv.spheres.ui.components.NativeDatePickerField
+import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelTextArea
 import de.koenidv.spheres.ui.components.QualityPicker
@@ -59,8 +72,11 @@ fun LogSheet(
     sheet: SheetState.Log
 ) {
     val state by SpheresStore.state.collectAsState()
-    val person = state.people.firstOrNull { it.id == sheet.personId }
+    val targetIds = sheet.personIds.ifEmpty { listOf(sheet.personId) }
+    val selectedPeople = targetIds.mapNotNull { id -> state.people.firstOrNull { it.id == id } }
+    val person = selectedPeople.firstOrNull()
     val name = firstName(person?.name ?: "them")
+    val isGroup = selectedPeople.size > 1
     val isNote = sheet.mode == LogMode.NOTE
 
     var kind by remember { mutableStateOf(InteractionKind.CHECKIN) }
@@ -71,8 +87,8 @@ fun LogSheet(
     var noteType by remember { mutableStateOf("note") }
 
     val save = {
-        if (person != null) {
-            if (isNote && noteType == "gift") {
+        if (selectedPeople.isNotEmpty()) {
+            if (isNote && noteType == "gift" && person != null) {
                 val newGift = Gift(
                     id = randomUuid(),
                     text = text.trim(),
@@ -87,21 +103,40 @@ fun LogSheet(
                     "yesterday" -> currentTimeMillis() - DAY
                     else -> dateMillis
                 }
-                SpheresStore.logEntry(
-                    personId = person.id,
-                    kind = if (isNote) EntryKind.NOTE else kind.toEntryKind(),
-                    text = text.trim(),
-                    at = if (isNote) null else at,
-                    quality = quality
-                )
+                val entryKind = if (isNote) EntryKind.NOTE else kind.toEntryKind()
+                val trimmedText = text.trim()
+                val entryAt = if (isNote) null else at
+                selectedPeople.forEach { target ->
+                    SpheresStore.logEntry(
+                        personId = target.id,
+                        kind = entryKind,
+                        text = trimmedText,
+                        at = entryAt,
+                        quality = quality
+                    )
+                }
                 SpheresStore.showToast(
-                    if (isNote) "Note saved for $name"
-                    else if (kind == InteractionKind.CHECKIN) "Checked in with $name"
-                    else "Interaction with $name saved"
+                    when {
+                        isNote -> "Note saved for $name"
+                        isGroup && kind == InteractionKind.CHECKIN -> "Checked in with ${selectedPeople.size} people"
+                        isGroup -> "Interaction with ${selectedPeople.size} people saved"
+                        kind == InteractionKind.CHECKIN -> "Checked in with $name"
+                        else -> "Interaction with $name saved"
+                    }
                 )
                 SpheresStore.closeSheet()
             }
         }
+    }
+
+    val titleText = when {
+        isNote -> "Note about $name"
+        selectedPeople.size == 2 -> "Interaction with ${firstName(selectedPeople[0].name)} & ${firstName(selectedPeople[1].name)}"
+        selectedPeople.size > 2 -> {
+            val others = selectedPeople.size - 2
+            "Interaction with ${firstName(selectedPeople[0].name)}, ${firstName(selectedPeople[1].name)} & $others ${if (others == 1) "other" else "others"}"
+        }
+        else -> "Interaction with $name"
     }
 
     Column(
@@ -110,17 +145,53 @@ fun LogSheet(
             .padding(top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        Text(
-            text = if (isNote) "Note about $name" else "Interaction with $name",
-            style = TextStyle(
-                fontFamily = PixelFontFamily(),
-                fontSize = 22.sp,
-                lineHeight = 28.sp,
-                color = Ink,
-                textAlign = TextAlign.Center
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (isGroup) {
+                val shown = selectedPeople.take(4)
+                val avatarSize = 36.dp
+                val step = 24.dp
+                val totalWidth = avatarSize + step * (shown.size - 1)
+                Box(
+                    modifier = Modifier
+                        .width(totalWidth)
+                        .height(avatarSize)
+                ) {
+                    shown.forEachIndexed { idx, p ->
+                        val info = intervalInfo(p.intervalDays)
+                        Box(
+                            modifier = Modifier
+                                .offset(x = step * idx)
+                                .size(avatarSize)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .border(2.dp, Color.White, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            PersonAvatar(
+                                person = p,
+                                colorHex = info.color,
+                                size = avatarSize - 4.dp
+                            )
+                        }
+                    }
+                }
+            }
+            Text(
+                text = titleText,
+                style = TextStyle(
+                    fontFamily = PixelFontFamily(),
+                    fontSize = 22.sp,
+                    lineHeight = 28.sp,
+                    color = Ink,
+                    textAlign = TextAlign.Center
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         if (!isNote) {
             FlowRow(
