@@ -66,6 +66,7 @@ import de.koenidv.spheres.platform.PlatformBackHandler
 import de.koenidv.spheres.platform.StatusBarEffect
 import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.ui.components.BottomNav
+import de.koenidv.spheres.ui.components.DatePickerHost
 import de.koenidv.spheres.ui.components.BottomNavTab
 import de.koenidv.spheres.ui.components.RadarSkeleton
 import de.koenidv.spheres.ui.components.SteppedPolygonShape
@@ -564,6 +565,7 @@ private fun Shell() {
             )
 
             SheetHost(onNavigate = navigate)
+            DatePickerHost()
 
             ToastHost(
                 toast = state.toast?.let { ToastMessage(it.id.toString(), it.text, it.undo) },

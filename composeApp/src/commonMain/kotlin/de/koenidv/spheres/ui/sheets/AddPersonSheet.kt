@@ -42,7 +42,7 @@ import de.koenidv.spheres.domain.formatBirthday
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.platform.PickedContact
 import de.koenidv.spheres.platform.rememberContactPickerLauncher
-import de.koenidv.spheres.platform.rememberNativeDatePicker
+import de.koenidv.spheres.ui.components.rememberDatePicker
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.Field
 import de.koenidv.spheres.ui.components.IconName
@@ -368,7 +368,7 @@ fun AddPersonSheet(
         }
 
         if (currentBatch == null) {
-            val openBirthdayPicker = rememberNativeDatePicker(
+            val openBirthdayPicker = rememberDatePicker(
                 initialDateMillis = birthdayToEpochMillis(birthday),
                 onDateSelected = { pickedMillis ->
                     birthday = epochMillisToBirthday(pickedMillis)

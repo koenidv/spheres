@@ -92,7 +92,7 @@ import de.koenidv.spheres.domain.sphereIdsViaEvents
 import de.koenidv.spheres.platform.openExternalUrl
 import de.koenidv.spheres.platform.randomUuid
 import de.koenidv.spheres.platform.rememberContactPickerLauncher
-import de.koenidv.spheres.platform.rememberNativeDatePicker
+import de.koenidv.spheres.ui.components.rememberDatePicker
 import de.koenidv.spheres.ui.components.AnchoredPopupMenu
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.ButtonVariant
@@ -981,7 +981,7 @@ private fun OptInSpheresRow(
 @Composable
 private fun BirthdayCard(person: Person) {
     val b = person.birthday
-    val openPicker = rememberNativeDatePicker(
+    val openPicker = rememberDatePicker(
         initialDateMillis = birthdayToEpochMillis(b),
         onDateSelected = { pickedMillis ->
             SpheresStore.updatePerson(person.id) {

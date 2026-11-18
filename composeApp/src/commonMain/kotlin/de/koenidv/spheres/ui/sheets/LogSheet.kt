@@ -47,7 +47,7 @@ import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.Chip
 import de.koenidv.spheres.ui.components.Field
 import de.koenidv.spheres.ui.components.IconName
-import de.koenidv.spheres.ui.components.NativeDatePickerField
+import de.koenidv.spheres.ui.components.DatePickerField
 import de.koenidv.spheres.ui.components.PersonAvatar
 import de.koenidv.spheres.ui.components.PixelButton
 import de.koenidv.spheres.ui.components.PixelTextArea
@@ -221,7 +221,7 @@ fun LogSheet(
             }
 
             if (whenChoice == "pick") {
-                NativeDatePickerField(
+                DatePickerField(
                     dateMillis = dateMillis,
                     onDateSelected = { dateMillis = it }
                 )

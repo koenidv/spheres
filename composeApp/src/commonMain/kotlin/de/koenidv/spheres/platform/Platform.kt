@@ -137,12 +137,6 @@ expect fun StatusBarEffect(colorHex: Long, dimmed: Boolean)
 @Composable
 expect fun PlatformBackHandler(enabled: Boolean = true, onBack: () -> Unit)
 
-@Composable
-expect fun rememberNativeDatePicker(
-    initialDateMillis: Long,
-    onDateSelected: (Long) -> Unit,
-): () -> Unit
-
 enum class NotificationActionType { CHECKIN, SNOOZE }
 
 object NotificationActionBridge {

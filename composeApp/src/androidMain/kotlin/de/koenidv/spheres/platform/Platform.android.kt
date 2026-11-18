@@ -3,7 +3,6 @@ package de.koenidv.spheres.platform
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.DatePickerDialog
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -118,11 +117,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.datetime.Instant
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
 
 object AndroidPlatformContext {
     private var appContextRef: WeakReference<Context>? = null
@@ -1121,32 +1115,6 @@ actual fun StatusBarEffect(colorHex: Long, dimmed: Boolean) {
 @Composable
 actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
     androidx.activity.compose.BackHandler(enabled = enabled, onBack = onBack)
-}
-
-@Composable
-actual fun rememberNativeDatePicker(
-    initialDateMillis: Long,
-    onDateSelected: (Long) -> Unit,
-): () -> Unit {
-    val context = LocalContext.current
-    val tz = TimeZone.currentSystemDefault()
-    return remember(context, initialDateMillis, onDateSelected) {
-        {
-            val initialDate = Instant.fromEpochMilliseconds(initialDateMillis).toLocalDateTime(tz).date
-            DatePickerDialog(
-                context,
-                { _, year, monthZeroBased, dayOfMonth ->
-                    val picked = LocalDateTime(year, monthZeroBased + 1, dayOfMonth, 12, 0, 0, 0)
-                        .toInstant(tz)
-                        .toEpochMilliseconds()
-                    onDateSelected(picked)
-                },
-                initialDate.year,
-                initialDate.monthNumber - 1,
-                initialDate.dayOfMonth
-            ).show()
-        }
-    }
 }
 
 actual object PlatformBilling {

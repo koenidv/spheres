@@ -22,11 +22,6 @@ import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.datetime.Instant
-import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.skia.Image
 import platform.AuthenticationServices.ASAuthorization
 import platform.AuthenticationServices.ASAuthorizationAppleIDCredential
@@ -89,8 +84,6 @@ import platform.StoreKit.SKProductsRequest
 import platform.StoreKit.SKProductsRequestDelegateProtocol
 import platform.StoreKit.SKProductsResponse
 import platform.StoreKit.SKRequest
-import platform.UIKit.NSLayoutConstraint
-import platform.UIKit.UIAction
 import platform.UIKit.UIActivityViewController
 import platform.UIKit.UIAlertAction
 import platform.UIKit.UIAlertActionStyleCancel
@@ -98,13 +91,7 @@ import platform.UIKit.UIAlertActionStyleDefault
 import platform.UIKit.UIAlertController
 import platform.UIKit.UIAlertControllerStyleAlert
 import platform.UIKit.UIApplication
-import platform.UIKit.UIButton
-import platform.UIKit.UIButtonTypeSystem
 import platform.UIKit.UIColor
-import platform.UIKit.UIControlEventTouchUpInside
-import platform.UIKit.UIDatePicker
-import platform.UIKit.UIDatePickerMode
-import platform.UIKit.UIDatePickerStyle
 import platform.UIKit.UIGraphicsImageRenderer
 import platform.UIKit.UIGraphicsImageRendererFormat
 import platform.UIKit.UIImage
@@ -114,7 +101,6 @@ import platform.UIKit.UIImageRenderingMode
 import platform.UIKit.UIImageSymbolConfiguration
 import platform.UIKit.UIImpactFeedbackGenerator
 import platform.UIKit.UIImpactFeedbackStyle
-import platform.UIKit.UIModalPresentationPageSheet
 import platform.UIKit.UIStatusBarStyleDarkContent
 import platform.UIKit.UIStatusBarStyleLightContent
 import platform.UIKit.UIViewController
@@ -726,80 +712,6 @@ actual fun StatusBarEffect(colorHex: Long, dimmed: Boolean) {
 
 @Composable
 actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {}
-
-@OptIn(ExperimentalForeignApi::class)
-@Composable
-actual fun rememberNativeDatePicker(
-    initialDateMillis: Long,
-    onDateSelected: (Long) -> Unit,
-): () -> Unit {
-    return remember(initialDateMillis, onDateSelected) {
-        {
-            val rootVc = getRootViewController()
-            if (rootVc != null) {
-                val vc = UIViewController()
-                vc.view.backgroundColor = UIColor.whiteColor
-                vc.modalPresentationStyle = UIModalPresentationPageSheet
-
-                val picker = UIDatePicker().apply {
-                    datePickerMode = UIDatePickerMode.UIDatePickerModeDate
-                    preferredDatePickerStyle = UIDatePickerStyle.UIDatePickerStyleInline
-                    date = NSDate.dateWithTimeIntervalSince1970(initialDateMillis / 1000.0)
-                    translatesAutoresizingMaskIntoConstraints = false
-                }
-
-                val cancelButton = UIButton.buttonWithType(UIButtonTypeSystem).apply {
-                    setTitle("Cancel", forState = 0u)
-                    translatesAutoresizingMaskIntoConstraints = false
-                    addAction(
-                        UIAction.actionWithHandler { _ ->
-                            vc.dismissViewControllerAnimated(true, completion = null)
-                        },
-                        forControlEvents = UIControlEventTouchUpInside
-                    )
-                }
-
-                val doneButton = UIButton.buttonWithType(UIButtonTypeSystem).apply {
-                    setTitle("Done", forState = 0u)
-                    translatesAutoresizingMaskIntoConstraints = false
-                    addAction(
-                        UIAction.actionWithHandler { _ ->
-                            val millis = (picker.date.timeIntervalSince1970 * 1000.0).toLong()
-                            val tz = TimeZone.currentSystemDefault()
-                            val localDate = Instant.fromEpochMilliseconds(millis).toLocalDateTime(tz).date
-                            val noonMillis = LocalDateTime(localDate.year, localDate.monthNumber, localDate.dayOfMonth, 12, 0, 0, 0)
-                                .toInstant(tz)
-                                .toEpochMilliseconds()
-                            vc.dismissViewControllerAnimated(true) {
-                                onDateSelected(noonMillis)
-                            }
-                        },
-                        forControlEvents = UIControlEventTouchUpInside
-                    )
-                }
-
-                vc.view.addSubview(cancelButton)
-                vc.view.addSubview(doneButton)
-                vc.view.addSubview(picker)
-
-                val guide = vc.view.safeAreaLayoutGuide
-                NSLayoutConstraint.activateConstraints(
-                    listOf(
-                        cancelButton.topAnchor.constraintEqualToAnchor(guide.topAnchor, constant = 16.0),
-                        cancelButton.leadingAnchor.constraintEqualToAnchor(guide.leadingAnchor, constant = 20.0),
-                        doneButton.topAnchor.constraintEqualToAnchor(guide.topAnchor, constant = 16.0),
-                        doneButton.trailingAnchor.constraintEqualToAnchor(guide.trailingAnchor, constant = -20.0),
-                        picker.topAnchor.constraintEqualToAnchor(doneButton.bottomAnchor, constant = 12.0),
-                        picker.leadingAnchor.constraintEqualToAnchor(guide.leadingAnchor, constant = 16.0),
-                        picker.trailingAnchor.constraintEqualToAnchor(guide.trailingAnchor, constant = -16.0),
-                    )
-                )
-
-                rootVc.presentViewController(vc, animated = true, completion = null)
-            }
-        }
-    }
-}
 
 private fun getRootViewController(): UIViewController? {
     val app = UIApplication.sharedApplication

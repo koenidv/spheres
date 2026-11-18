@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.domain.Quality
 import de.koenidv.spheres.domain.formatDay
-import de.koenidv.spheres.platform.rememberNativeDatePicker
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -378,12 +377,12 @@ fun rememberLiveNow(intervalMs: Long = 60_000L): Long {
 }
 
 @Composable
-fun NativeDatePickerField(
+fun DatePickerField(
     dateMillis: Long,
     onDateSelected: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val openPicker = rememberNativeDatePicker(
+    val openPicker = rememberDatePicker(
         initialDateMillis = dateMillis,
         onDateSelected = onDateSelected
     )
