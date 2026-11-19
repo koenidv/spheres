@@ -70,6 +70,7 @@ import de.koenidv.spheres.ui.components.PopupAnchor
 import de.koenidv.spheres.ui.components.PopupMenuOption
 import de.koenidv.spheres.ui.components.PxClipShape
 import de.koenidv.spheres.ui.components.SpherePill
+import de.koenidv.spheres.ui.components.autoFocus
 import de.koenidv.spheres.ui.components.healthColor
 import de.koenidv.spheres.ui.components.rememberLiveNow
 import de.koenidv.spheres.ui.theme.CardBg
@@ -102,7 +103,8 @@ private fun hasAnySphere(person: Person, events: List<SocialEvent>): Boolean =
 @Composable
 fun PeopleScreen(
     onNavigate: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusSearch: Boolean = false
 ) {
     val state by SpheresStore.state.collectAsState()
     val people = state.people
@@ -229,7 +231,7 @@ fun PeopleScreen(
                         ) {
                             PixelIconButton(
                                 icon = IconName.BACK,
-                                onClick = { onNavigate("/spheres") },
+                                onClick = { onNavigate("..") },
                                 size = 40.dp
                             )
                             Text(
@@ -263,7 +265,8 @@ fun PeopleScreen(
                     PixelTextInput(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = "Search everyone"
+                        placeholder = "Search everyone",
+                        modifier = Modifier.autoFocus(enabled = focusSearch)
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))

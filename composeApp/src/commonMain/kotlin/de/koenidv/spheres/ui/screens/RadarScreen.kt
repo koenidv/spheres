@@ -155,11 +155,21 @@ fun RadarScreen(
                 title = "Connections",
                 subtitle = subtitle,
                 right = {
-                    PixelIconButton(
-                        icon = IconName.SETTINGS,
-                        onClick = { onNavigate("/settings") },
-                        tint = Ink.copy(alpha = 0.4f)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        PixelIconButton(
+                            icon = IconName.SEARCH,
+                            onClick = { onNavigate("/people?search=1") },
+                            tint = Ink.copy(alpha = 0.4f)
+                        )
+                        PixelIconButton(
+                            icon = IconName.SETTINGS,
+                            onClick = { onNavigate("/settings") },
+                            tint = Ink.copy(alpha = 0.4f)
+                        )
+                    }
                 }
             )
 

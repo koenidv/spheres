@@ -308,6 +308,7 @@ private fun Shell() {
             currentPath.startsWith("/spheres") -> "spheres"
             currentPath == "/map" -> "map"
             currentPath == "/settings" -> "settings"
+            currentPath.startsWith("/people") -> "people"
             currentPath.startsWith("/person/") -> "person"
             currentPath.startsWith("/sphere/") -> "sphere"
             currentPath.startsWith("/event/") -> "event"
@@ -529,7 +530,10 @@ private fun Shell() {
                             loc == "/" -> RadarScreen(onNavigate = navigate)
                             loc == "/due" -> DueScreen(onNavigate = navigate)
                             loc == "/spheres" -> SpheresScreen(onNavigate = navigate)
-                            loc == "/people" -> PeopleScreen(onNavigate = navigate)
+                            loc == "/people" || loc == "/people?search=1" -> PeopleScreen(
+                                onNavigate = navigate,
+                                focusSearch = loc == "/people?search=1"
+                            )
                             loc == "/map" -> MapScreen(onNavigate = navigate)
                             loc == "/settings" -> SettingsScreen(onNavigate = navigate)
                             loc.startsWith("/spheres/") -> SphereScreen(
