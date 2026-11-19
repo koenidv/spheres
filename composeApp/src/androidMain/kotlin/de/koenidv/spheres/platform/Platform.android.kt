@@ -1,5 +1,6 @@
 package de.koenidv.spheres.platform
 
+import de.koenidv.spheres.BuildFlags
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
@@ -300,7 +301,8 @@ actual object PlatformNotifications {
         if (!isGranted()) return
 
         val now = currentTimeMillis()
-        val launchIntent = Intent(context, de.koenidv.spheres.MainActivity::class.java).apply {
+        val launchIntent = (context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent(Intent.ACTION_MAIN).apply { setPackage(context.packageName) }).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val contentPendingIntent = PendingIntent.getActivity(
@@ -415,14 +417,16 @@ class NotificationActionReceiver : BroadcastReceiver() {
 }
 
 actual object PlatformPhoneIntegration {
-    actual fun isSupported(): Boolean = true
+    actual fun isSupported(): Boolean = BuildFlags.PHONE_LOGGING_ENABLED
 
     actual fun isGranted(): Boolean {
+        if (!BuildFlags.PHONE_LOGGING_ENABLED) return false
         val context = AndroidPlatformContext.applicationContext
         return context.checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
     }
 
     actual suspend fun requestPermission(): Boolean {
+        if (!BuildFlags.PHONE_LOGGING_ENABLED) return false
         if (isGranted()) return true
         val activity = AndroidPlatformContext.currentActivity ?: return false
         val permissions = arrayOf(
@@ -438,7 +442,7 @@ actual object PlatformPhoneIntegration {
     }
 
     actual fun fetchCallsLongerThan(minDurationSeconds: Long, sinceMillis: Long): List<PhoneCallRecord> {
-        if (!isGranted()) return emptyList()
+        if (!BuildFlags.PHONE_LOGGING_ENABLED || !isGranted()) return emptyList()
         val context = AndroidPlatformContext.applicationContext
         val canReadContacts =
             context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED

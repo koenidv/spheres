@@ -8,7 +8,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
@@ -17,6 +17,9 @@ plugins {
 abstract class GenerateBuildFlagsTask : DefaultTask() {
     @get:Input
     abstract val paywallEnabled: Property<Boolean>
+
+    @get:Input
+    abstract val phoneLoggingEnabled: Property<Boolean>
 
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
@@ -31,6 +34,7 @@ abstract class GenerateBuildFlagsTask : DefaultTask() {
 
             object BuildFlags {
                 const val PAYWALL_ENABLED: Boolean = ${paywallEnabled.get()}
+                const val PHONE_LOGGING_ENABLED: Boolean = ${phoneLoggingEnabled.get()}
             }
             """.trimIndent() + "\n"
         )
@@ -38,22 +42,38 @@ abstract class GenerateBuildFlagsTask : DefaultTask() {
 }
 
 val generateBuildFlags = tasks.register<GenerateBuildFlagsTask>("generateBuildFlags") {
-    val gradleProp = providers.gradleProperty("spheres.paywallEnabled").orElse("true")
-    val envProp = providers.environmentVariable("PAYWALL_ENABLED").orElse("")
+    fun isEnabled(v: String): Boolean {
+        val norm = v.trim().lowercase()
+        return norm != "false" && norm != "0" && norm != "no"
+    }
+
+    val gradlePaywall = providers.gradleProperty("spheres.paywallEnabled").orElse("true")
+    val envPaywall = providers.environmentVariable("PAYWALL_ENABLED").orElse("")
     paywallEnabled.set(
-        gradleProp.zip(envProp) { g, e ->
-            fun isEnabled(v: String): Boolean {
-                val norm = v.trim().lowercase()
-                return norm != "false" && norm != "0" && norm != "no"
-            }
+        gradlePaywall.zip(envPaywall) { g, e ->
             isEnabled(g) && (e.isBlank() || isEnabled(e))
         }
     )
+
+    val gradlePhoneLogging = providers.gradleProperty("spheres.phoneLoggingEnabled").orElse("false")
+    val envPhoneLogging = providers.environmentVariable("PHONE_LOGGING_ENABLED").orElse("")
+    phoneLoggingEnabled.set(
+        gradlePhoneLogging.zip(envPhoneLogging) { g, e ->
+            isEnabled(g) && (e.isBlank() || isEnabled(e))
+        }
+    )
+
     outputDir.set(layout.buildDirectory.dir("generated/source/buildFlags/commonMain/kotlin"))
 }
 
 kotlin {
-    androidTarget {
+    android {
+        namespace = "de.koenidv.spheres"
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk = libs.versions.android.minSdk.get().toInt()
+        androidResources.enable = true
+        withHostTest {}
+
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
         }
@@ -108,39 +128,8 @@ kotlin {
     }
 }
 
-android {
-    namespace = "de.koenidv.spheres"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
-
-    defaultConfig {
-        applicationId = "dev.koeni.spheres"
-        minSdk = libs.versions.android.minSdk.get().toInt()
-        targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1005
-        versionName = "1.1"
-    }
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
-    buildTypes {
-        getByName("release") {
-            isMinifyEnabled = false
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-}
-
 compose.resources {
     publicResClass = true
     packageOfResClass = "de.koenidv.spheres.resources"
     generateResClass = always
-}
-
-dependencies {
-    debugImplementation(libs.compose.uiTooling)
 }

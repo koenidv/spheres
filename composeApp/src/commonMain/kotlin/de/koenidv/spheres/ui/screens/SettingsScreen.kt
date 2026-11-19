@@ -478,7 +478,7 @@ fun SettingsScreen(
                         ) {
                             Text(
                                 text = if (notificationsSupported) {
-                                    "Get a nudge for due connections and on birthdays"
+                                    "Nudge for due connections and on birthdays"
                                 } else {
                                     "Notifications are not supported on this device"
                                 },
@@ -528,7 +528,7 @@ fun SettingsScreen(
                         if (notificationsSupported) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Reminders arrive at 9:00 AM local time based on your scheduled check-in intervals.",
+                                text = "Reminders arrive around 9:00 AM based on your scheduled check-in intervals.",
                                 style = TextStyle(
                                     fontFamily = SansFontFamily(),
                                     fontSize = 13.sp,
@@ -562,39 +562,41 @@ fun SettingsScreen(
                                 modifier = Modifier.weight(1f)
                             )
 
-                            val phoneEnabled = phoneSupported && state.phoneIntegrationEnabled
-                            val phoneKnobOffset by animateDpAsState(
-                                targetValue = if (phoneEnabled) 28.dp else 4.dp,
-                                animationSpec = tween(150)
-                            )
+                            if (phoneSupported) {
+                                val phoneEnabled = state.phoneIntegrationEnabled
+                                val phoneKnobOffset by animateDpAsState(
+                                    targetValue = if (phoneEnabled) 28.dp else 4.dp,
+                                    animationSpec = tween(150)
+                                )
 
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 56.dp, height = 32.dp)
-                                    .clip(PxClipShape)
-                                    .background(if (phoneEnabled) Ink else Ink.copy(alpha = 0.15f))
-                                    .clickable(enabled = phoneSupported) {
-                                        if (phoneEnabled) {
-                                            SpheresStore.setPhoneIntegrationEnabled(false)
-                                        } else {
-                                            scope.launch {
-                                                val granted = PlatformPhoneIntegration.requestPermission()
-                                                if (granted) {
-                                                    SpheresStore.setPhoneIntegrationEnabled(true)
-                                                } else {
-                                                    SpheresStore.showToast("Call log permission was not allowed")
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 56.dp, height = 32.dp)
+                                        .clip(PxClipShape)
+                                        .background(if (phoneEnabled) Ink else Ink.copy(alpha = 0.15f))
+                                        .clickable {
+                                            if (phoneEnabled) {
+                                                SpheresStore.setPhoneIntegrationEnabled(false)
+                                            } else {
+                                                scope.launch {
+                                                    val granted = PlatformPhoneIntegration.requestPermission()
+                                                    if (granted) {
+                                                        SpheresStore.setPhoneIntegrationEnabled(true)
+                                                    } else {
+                                                        SpheresStore.showToast("Call log permission was not allowed")
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .offset(x = phoneKnobOffset, y = 4.dp)
-                                        .size(24.dp)
-                                        .clip(PxClipShape)
-                                        .background(Color.White)
-                                )
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = phoneKnobOffset, y = 4.dp)
+                                            .size(24.dp)
+                                            .clip(PxClipShape)
+                                            .background(Color.White)
+                                    )
+                                }
                             }
                         }
 
