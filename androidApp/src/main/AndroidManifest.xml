@@ -43,6 +43,15 @@
         <receiver
             android:name="de.koenidv.spheres.platform.NotificationActionReceiver"
             android:exported="false" />
+        <service
+            android:name="de.koenidv.spheres.platform.CallNotificationListenerService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

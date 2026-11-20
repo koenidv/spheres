@@ -890,6 +890,10 @@ object SpheresStore {
         city: String? = null,
         address: String? = null,
         country: String? = null,
+        lat: Double? = null,
+        lng: Double? = null,
+        avatar: AvatarConfig? = null,
+        photoBytes: ByteArray? = null,
         contactId: String? = null,
         contactName: String? = null,
         phoneNumbers: List<String> = emptyList(),
@@ -907,6 +911,9 @@ object SpheresStore {
             city = city?.trim()?.ifEmpty { null },
             address = address?.trim()?.ifEmpty { null },
             country = country?.trim()?.ifEmpty { null },
+            lat = lat,
+            lng = lng,
+            avatar = avatar,
             eventIds = eventIds,
             followUpAt = null,
             baseContactAt = baseContactAt,
@@ -929,7 +936,26 @@ object SpheresStore {
             s.copy(people = updated)
         }
         scope.launch {
-            state.value.user?.let { backend.savePerson(it.uid, person, it.idToken) }
+            val user = state.value.user
+            if (user != null) {
+                var toSave = person
+                if (photoBytes != null) {
+                    val upload = uploadAvatarPhotoWithRetry(user, id, photoBytes)
+                    val uploadedUrl = upload.getOrNull()
+                    if (uploadedUrl != null) {
+                        toSave = (state.value.people.firstOrNull { it.id == id } ?: person)
+                            .copy(photoUrl = uploadedUrl)
+                        _state.update { s ->
+                            val list = s.people.map { if (it.id == id) toSave else it }
+                            PlatformStorage.putString("cache_${user.uid}_people", json.encodeToString(list))
+                            s.copy(people = list)
+                        }
+                    } else {
+                        showToast(upload.exceptionOrNull()?.message ?: "Couldn't upload photo")
+                    }
+                }
+                backend.savePerson(user.uid, toSave, user.idToken)
+            }
             syncReminderSchedule(state.value.people, state.value.entries)
         }
         return id
@@ -1010,6 +1036,26 @@ object SpheresStore {
         return backend.downloadBytes(url, token)
     }
 
+    private suspend fun uploadAvatarPhotoWithRetry(
+        user: AppUser,
+        personId: String,
+        photoBytes: ByteArray,
+    ): Result<String> {
+        val version = currentTimeMillis()
+        var token = user.idToken
+        var upload = backend.uploadAvatarPhoto(user.uid, personId, version, photoBytes, token)
+        if (upload.downloadUrl == null && (upload.statusCode == 401 || upload.statusCode == 403)) {
+            token = refreshSessionToken()
+            if (!token.isNullOrBlank()) {
+                upload = backend.uploadAvatarPhoto(user.uid, personId, version, photoBytes, token)
+            }
+        }
+        val uploadedUrl = upload.downloadUrl
+            ?: return Result.failure(Exception("Couldn't upload photo"))
+        AvatarPhotoCache.seed(uploadedUrl, photoBytes)
+        return Result.success(uploadedUrl)
+    }
+
     suspend fun updatePersonAvatar(
         personId: String,
         avatar: AvatarConfig?,
@@ -1022,19 +1068,9 @@ object SpheresStore {
 
         val finalPhotoUrl = if (newPhotoBytes != null) {
             val user = state.value.user ?: return Result.failure(Exception("Sign in to sync photos"))
-            val version = currentTimeMillis()
-            var token = user.idToken
-            var upload = backend.uploadAvatarPhoto(user.uid, personId, version, newPhotoBytes, token)
-            if (upload.downloadUrl == null && (upload.statusCode == 401 || upload.statusCode == 403)) {
-                token = refreshSessionToken()
-                if (!token.isNullOrBlank()) {
-                    upload = backend.uploadAvatarPhoto(user.uid, personId, version, newPhotoBytes, token)
-                }
+            uploadAvatarPhotoWithRetry(user, personId, newPhotoBytes).getOrElse {
+                return Result.failure(it)
             }
-            val uploadedUrl = upload.downloadUrl
-                ?: return Result.failure(Exception("Couldn't upload photo"))
-            AvatarPhotoCache.seed(uploadedUrl, newPhotoBytes)
-            uploadedUrl
         } else if (removePhoto) {
             null
         } else {
@@ -1261,6 +1297,8 @@ object SpheresStore {
                 showToast("Phone integration enabled")
             }
         } else if (!enabled) {
+            // Drop any call details detected on this device.
+            PlatformStorage.putString("phone_integration_detected_calls", null)
             showToast("Phone integration disabled")
         }
     }

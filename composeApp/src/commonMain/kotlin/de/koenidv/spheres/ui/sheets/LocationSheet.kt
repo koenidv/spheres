@@ -89,15 +89,63 @@ private fun Person.currentPlace(): PlaceResult? {
 fun LocationSheet(sheet: SheetState.LocationEdit) {
     val state by SpheresStore.state.collectAsState()
     val person = state.people.firstOrNull { it.id == sheet.personId } ?: return
+    val hasLocation = !person.city.isNullOrBlank() || !person.address.isNullOrBlank()
+    val existingLabel = listOfNotNull(person.address, person.city).joinToString(", ").ifBlank { null }
+
+    LocationEditor(
+        stateKey = person.id,
+        personPreview = person,
+        initialPlace = remember(person.id) { person.currentPlace() },
+        initialPrecision = if (person.address != null) PlaceKind.ADDRESS else PlaceKind.CITY,
+        hasExistingLocation = hasLocation,
+        existingLocationLabel = existingLabel,
+        saveLabel = "Save location",
+        onSavePlace = { city, address, country, lat, lng ->
+            SpheresStore.updatePerson(person.id) {
+                it.copy(
+                    city = city,
+                    address = address,
+                    country = country,
+                    lat = lat,
+                    lng = lng
+                )
+            }
+            SpheresStore.closeSheet()
+        },
+        onClear = {
+            SpheresStore.updatePerson(person.id) {
+                it.copy(city = null, address = null, country = null, lat = null, lng = null)
+            }
+            SpheresStore.closeSheet()
+        }
+    )
+}
+
+@Composable
+fun LocationEditor(
+    stateKey: Any,
+    personPreview: Person,
+    initialPlace: PlaceResult? = null,
+    initialPrecision: PlaceKind = PlaceKind.CITY,
+    hasExistingLocation: Boolean = false,
+    existingLocationLabel: String? = null,
+    saveLabel: String = "Save location",
+    onSavePlace: (
+        city: String?,
+        address: String?,
+        country: String?,
+        lat: Double?,
+        lng: Double?,
+    ) -> Unit,
+    onClear: () -> Unit,
+) {
     val focus = LocalFocusManager.current
 
-    var query by remember(person.id) { mutableStateOf("") }
-    var results by remember(person.id) { mutableStateOf<List<PlaceResult>>(emptyList()) }
-    var loading by remember(person.id) { mutableStateOf(false) }
-    var picked by remember(person.id) { mutableStateOf(person.currentPlace()) }
-    var precision by remember(person.id) {
-        mutableStateOf(if (person.address != null) PlaceKind.ADDRESS else PlaceKind.CITY)
-    }
+    var query by remember(stateKey) { mutableStateOf("") }
+    var results by remember(stateKey) { mutableStateOf<List<PlaceResult>>(emptyList()) }
+    var loading by remember(stateKey) { mutableStateOf(false) }
+    var picked by remember(stateKey) { mutableStateOf(initialPlace) }
+    var precision by remember(stateKey) { mutableStateOf(initialPrecision) }
 
     LaunchedEffect(query) {
         val q = query.trim()
@@ -110,15 +158,6 @@ fun LocationSheet(sheet: SheetState.LocationEdit) {
         delay(350)
         results = Geocoder.search(q)
         loading = false
-    }
-
-    val hasLocation = !person.city.isNullOrBlank() || !person.address.isNullOrBlank()
-
-    fun clearLocation() {
-        SpheresStore.updatePerson(person.id) {
-            it.copy(city = null, address = null, country = null, lat = null, lng = null)
-        }
-        SpheresStore.closeSheet()
     }
 
     Column(
@@ -167,17 +206,12 @@ fun LocationSheet(sheet: SheetState.LocationEdit) {
                     icon = IconName.EDIT,
                     title = "Use “$q” as typed",
                     subtitle = "Saved as the city, shown on the map once it's found",
-                    onClick = {
-                        SpheresStore.updatePerson(person.id) {
-                            it.copy(city = q, address = null, country = null, lat = null, lng = null)
-                        }
-                        SpheresStore.closeSheet()
-                    }
+                    onClick = { onSavePlace(q, null, null, null, null) }
                 )
             }
         } else if (picked != null) {
             val place = picked!!
-            LocationPreview(person = person, place = place)
+            LocationPreview(person = personPreview, place = place)
 
             if (place.kind == PlaceKind.ADDRESS && place.address != null) {
                 Segmented(
@@ -191,43 +225,40 @@ fun LocationSheet(sheet: SheetState.LocationEdit) {
             }
 
             PixelButton(
-                text = "Save location",
+                text = saveLabel,
                 size = ButtonSize.LG,
                 fullWidth = true,
                 onClick = {
                     val withAddress = precision == PlaceKind.ADDRESS && place.kind == PlaceKind.ADDRESS
-                    SpheresStore.updatePerson(person.id) {
-                        it.copy(
-                            city = place.city,
-                            address = if (withAddress) place.address else null,
-                            country = place.country,
-                            lat = place.lat,
-                            lng = place.lng
-                        )
-                    }
-                    SpheresStore.closeSheet()
+                    onSavePlace(
+                        place.city,
+                        if (withAddress) place.address else null,
+                        place.country,
+                        place.lat,
+                        place.lng
+                    )
                 }
             )
-            if (hasLocation) {
+            if (hasExistingLocation) {
                 PixelButton(
                     text = "Remove location",
                     variant = ButtonVariant.GHOST,
                     fullWidth = true,
-                    onClick = { clearLocation() }
+                    onClick = onClear
                 )
             }
         } else {
-            if (hasLocation) {
-                Hint("“${listOfNotNull(person.address, person.city).joinToString(", ")}” isn't on the map yet. Search to pin it down.")
+            if (hasExistingLocation && !existingLocationLabel.isNullOrBlank()) {
+                Hint("“$existingLocationLabel” isn't on the map yet. Search to pin it down.")
             } else {
                 Hint("A city is enough. Add a street too if you want the pin to be exact.")
             }
-            if (hasLocation) {
+            if (hasExistingLocation) {
                 PixelButton(
                     text = "Remove location",
                     variant = ButtonVariant.GHOST,
                     fullWidth = true,
-                    onClick = { clearLocation() }
+                    onClick = onClear
                 )
             }
         }

@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
+import de.koenidv.spheres.domain.AvatarConfig
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.platform.decodeImageBitmap
 import de.koenidv.spheres.platform.haptic
@@ -65,44 +66,111 @@ import kotlinx.coroutines.launch
 
 private enum class AvatarSheetMode { PIXEL, PHOTO }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AvatarSheet(sheet: SheetState.AvatarEdit) {
     val state by SpheresStore.state.collectAsState()
     val person = state.people.firstOrNull { it.id == sheet.personId } ?: return
     val scope = rememberCoroutineScope()
-
     val accentHex = remember(person.intervalDays) { intervalInfo(person.intervalDays).color }
-    val accentColor = remember(accentHex) { parseHexColor(accentHex) }
-    val defaultConfig = remember(person.name) { defaultAvatarConfig(person.name) }
+    var saving by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf<String?>(null) }
 
-    var mode by remember(person.id) {
-        mutableStateOf(if (!person.photoUrl.isNullOrBlank()) AvatarSheetMode.PHOTO else AvatarSheetMode.PIXEL)
-    }
-    var draftAvatar by remember(person.id) { mutableStateOf(person.avatar ?: defaultConfig) }
-    var lastNonBaldStyle by remember(person.id) {
+    AvatarEditor(
+        stateKey = person.id,
+        name = person.name,
+        accentHex = accentHex,
+        initialAvatar = person.avatar,
+        initialPhotoUrl = person.photoUrl,
+        saving = saving,
+        errorText = errorText,
+        onErrorTextChange = { errorText = it },
+        saveLabel = if (saving) "Saving…" else "Save",
+        onSave = { normalizedAvatar, newBytes, _, willRemovePhoto ->
+            val nothingChanged = newBytes == null &&
+                normalizedAvatar == person.avatar &&
+                ((willRemovePhoto && person.photoUrl == null) ||
+                    (!willRemovePhoto && person.photoUrl != null))
+
+            if (nothingChanged) {
+                SpheresStore.closeSheet()
+            } else {
+                scope.launch {
+                    saving = true
+                    errorText = null
+                    val result = SpheresStore.updatePersonAvatar(
+                        personId = person.id,
+                        avatar = normalizedAvatar,
+                        newPhotoBytes = newBytes,
+                        removePhoto = willRemovePhoto,
+                    )
+                    saving = false
+                    if (result.isSuccess) {
+                        SpheresStore.closeSheet()
+                        SpheresStore.showToast("Avatar saved")
+                    } else {
+                        errorText = result.exceptionOrNull()?.message ?: "Couldn't save avatar"
+                    }
+                }
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AvatarEditor(
+    stateKey: Any,
+    name: String,
+    accentHex: String,
+    initialAvatar: AvatarConfig?,
+    initialPhotoUrl: String? = null,
+    initialPhotoBytes: ByteArray? = null,
+    initialPhotoBitmap: ImageBitmap? = null,
+    saving: Boolean = false,
+    errorText: String? = null,
+    onErrorTextChange: (String?) -> Unit = {},
+    saveLabel: String = "Save",
+    onSave: (
+        normalizedAvatar: AvatarConfig?,
+        newPhotoBytes: ByteArray?,
+        newPhotoBitmap: ImageBitmap?,
+        removePhoto: Boolean
+    ) -> Unit,
+) {
+    val accentColor = remember(accentHex) { parseHexColor(accentHex) }
+    val defaultConfig = remember(name) { defaultAvatarConfig(name) }
+
+    var mode by remember(stateKey) {
         mutableStateOf(
-            (person.avatar?.hairStyle ?: defaultConfig.hairStyle)
+            if (!initialPhotoUrl.isNullOrBlank() || initialPhotoBitmap != null) {
+                AvatarSheetMode.PHOTO
+            } else {
+                AvatarSheetMode.PIXEL
+            }
+        )
+    }
+    var draftAvatar by remember(stateKey) { mutableStateOf(initialAvatar ?: defaultConfig) }
+    var lastNonBaldStyle by remember(stateKey) {
+        mutableStateOf(
+            (initialAvatar?.hairStyle ?: defaultConfig.hairStyle)
                 ?.takeIf { it != HairStyle.BALD.id }
                 ?: HairStyle.SHORT.id
         )
     }
-    var sourcePhotoBytes by remember(person.id) { mutableStateOf<ByteArray?>(null) }
-    var cropTargetBytes by remember(person.id) { mutableStateOf<ByteArray?>(null) }
-    var pickedPhotoBytes by remember(person.id) { mutableStateOf<ByteArray?>(null) }
-    var pickedPhotoBitmap by remember(person.id) { mutableStateOf<ImageBitmap?>(null) }
-    var removePhoto by remember(person.id) { mutableStateOf(false) }
-    var saving by remember { mutableStateOf(false) }
-    var errorText by remember { mutableStateOf<String?>(null) }
+    var sourcePhotoBytes by remember(stateKey) { mutableStateOf(initialPhotoBytes) }
+    var cropTargetBytes by remember(stateKey) { mutableStateOf<ByteArray?>(null) }
+    var pickedPhotoBytes by remember(stateKey) { mutableStateOf(initialPhotoBytes) }
+    var pickedPhotoBitmap by remember(stateKey) { mutableStateOf(initialPhotoBitmap) }
+    var removePhoto by remember(stateKey) { mutableStateOf(false) }
 
     val launchPhotoPicker = rememberPhotoPickerLauncher { bytes ->
         haptic()
         sourcePhotoBytes = bytes
         cropTargetBytes = bytes
-        errorText = null
+        onErrorTextChange(null)
     }
 
-    val hasActivePhoto = pickedPhotoBitmap != null || (!removePhoto && !person.photoUrl.isNullOrBlank())
+    val hasActivePhoto = pickedPhotoBitmap != null || (!removePhoto && !initialPhotoUrl.isNullOrBlank())
     val activeHairStyle = draftAvatar.hairStyle ?: defaultConfig.hairStyle
     val isBald = activeHairStyle == HairStyle.BALD.id
     val isModifiedPixel = draftAvatar != defaultConfig
@@ -128,7 +196,7 @@ fun AvatarSheet(sheet: SheetState.AvatarEdit) {
                 enabled = !saving,
                 onClick = {
                     haptic()
-                    errorText = null
+                    onErrorTextChange(null)
                     mode = AvatarSheetMode.PIXEL
                 },
                 modifier = Modifier.weight(1f)
@@ -140,7 +208,7 @@ fun AvatarSheet(sheet: SheetState.AvatarEdit) {
                 enabled = !saving,
                 onClick = {
                     haptic()
-                    errorText = null
+                    onErrorTextChange(null)
                     mode = AvatarSheetMode.PHOTO
                 },
                 modifier = Modifier.weight(1f)
@@ -174,17 +242,17 @@ fun AvatarSheet(sheet: SheetState.AvatarEdit) {
             ) {
                 if (mode == AvatarSheetMode.PIXEL) {
                     PixelAvatar(
-                        name = person.name,
+                        name = name,
                         colorHex = accentHex,
                         size = 104.dp,
                         config = draftAvatar
                     )
                 } else if (hasActivePhoto) {
                     AvatarRender(
-                        name = person.name,
+                        name = name,
                         colorHex = accentHex,
                         config = draftAvatar,
-                        photoUrl = if (removePhoto) null else person.photoUrl,
+                        photoUrl = if (removePhoto) null else initialPhotoUrl,
                         photoOverride = pickedPhotoBitmap,
                         size = 104.dp
                     )
@@ -425,7 +493,7 @@ fun AvatarSheet(sheet: SheetState.AvatarEdit) {
                             pickedPhotoBytes = null
                             pickedPhotoBitmap = null
                             removePhoto = true
-                            errorText = null
+                            onErrorTextChange(null)
                             mode = AvatarSheetMode.PIXEL
                         }
                     )
@@ -457,7 +525,7 @@ fun AvatarSheet(sheet: SheetState.AvatarEdit) {
             )
         } else {
             PixelButton(
-                text = if (saving) "Saving…" else "Save",
+                text = saveLabel,
                 size = ButtonSize.LG,
                 fullWidth = true,
                 enabled = !saving,
@@ -465,32 +533,8 @@ fun AvatarSheet(sheet: SheetState.AvatarEdit) {
                     val normalizedAvatar = if (draftAvatar == defaultConfig) null else draftAvatar
                     val willRemovePhoto = (mode == AvatarSheetMode.PIXEL) || removePhoto
                     val newBytes = if (mode == AvatarSheetMode.PHOTO) pickedPhotoBytes else null
-                    val nothingChanged = newBytes == null &&
-                        normalizedAvatar == person.avatar &&
-                        ((willRemovePhoto && person.photoUrl == null) ||
-                            (!willRemovePhoto && person.photoUrl != null))
-
-                    if (nothingChanged) {
-                        SpheresStore.closeSheet()
-                    } else {
-                        scope.launch {
-                            saving = true
-                            errorText = null
-                            val result = SpheresStore.updatePersonAvatar(
-                                personId = person.id,
-                                avatar = normalizedAvatar,
-                                newPhotoBytes = newBytes,
-                                removePhoto = willRemovePhoto,
-                            )
-                            saving = false
-                            if (result.isSuccess) {
-                                SpheresStore.closeSheet()
-                                SpheresStore.showToast("Avatar saved")
-                            } else {
-                                errorText = result.exceptionOrNull()?.message ?: "Couldn't save avatar"
-                            }
-                        }
-                    }
+                    val newBitmap = if (mode == AvatarSheetMode.PHOTO) pickedPhotoBitmap else null
+                    onSave(normalizedAvatar, newBytes, newBitmap, willRemovePhoto)
                 }
             )
         }
@@ -505,7 +549,7 @@ fun AvatarSheet(sheet: SheetState.AvatarEdit) {
                 pickedPhotoBytes = cropped
                 pickedPhotoBitmap = decodeImageBitmap(cropped)
                 removePhoto = false
-                errorText = null
+                onErrorTextChange(null)
                 mode = AvatarSheetMode.PHOTO
                 cropTargetBytes = null
             },

@@ -11,7 +11,7 @@ android {
         applicationId = "dev.koeni.spheres"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1006
+        versionCode = 1007
         versionName = "1.1"
     }
     packaging {
@@ -32,25 +32,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-    }
-}
-
-fun isFlagEnabled(v: String): Boolean {
-    val norm = v.trim().lowercase()
-    return norm != "false" && norm != "0" && norm != "no"
-}
-
-val gradlePhoneLogging = providers.gradleProperty("spheres.phoneLoggingEnabled").orElse("false").get()
-val envPhoneLogging = providers.environmentVariable("PHONE_LOGGING_ENABLED").orElse("").get()
-val phoneLoggingEnabled = isFlagEnabled(gradlePhoneLogging) && (envPhoneLogging.isBlank() || isFlagEnabled(envPhoneLogging))
-
-if (phoneLoggingEnabled) {
-    androidComponents {
-        onVariants { variant ->
-            variant.sources.manifests.addStaticManifestFile(
-                layout.projectDirectory.file("src/phoneLogging/AndroidManifest.xml").asFile.absolutePath
-            )
-        }
     }
 }
 

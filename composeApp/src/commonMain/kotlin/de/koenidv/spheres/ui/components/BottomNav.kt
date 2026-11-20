@@ -35,7 +35,7 @@ enum class BottomNavTab(val label: String, val icon: IconName) {
     RADAR("Radar", IconName.RADAR),
     DUE("Due", IconName.BELL),
     SPHERES("Spheres", IconName.USERS),
-    SETTINGS("Settings", IconName.SETTINGS)
+    MAP("Map", IconName.MAP)
 }
 
 @Composable
@@ -128,11 +128,11 @@ fun BottomNav(
                 )
 
                 NavTabItem(
-                    tab = BottomNavTab.SETTINGS,
-                    selected = selectedTab == BottomNavTab.SETTINGS,
+                    tab = BottomNavTab.MAP,
+                    selected = selectedTab == BottomNavTab.MAP,
                     onClick = {
-                        if (selectedTab == BottomNavTab.SETTINGS) onTabReselect?.invoke(BottomNavTab.SETTINGS)
-                        else onTabSelect(BottomNavTab.SETTINGS)
+                        if (selectedTab == BottomNavTab.MAP) onTabReselect?.invoke(BottomNavTab.MAP)
+                        else onTabSelect(BottomNavTab.MAP)
                     },
                     modifier = Modifier.weight(1f)
                 )

@@ -1,6 +1,13 @@
 package de.koenidv.spheres.ui.sheets
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,6 +17,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
@@ -24,16 +33,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.data.PaywallReason
+import de.koenidv.spheres.data.PlaceKind
+import de.koenidv.spheres.data.PlaceResult
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
+import de.koenidv.spheres.domain.AvatarConfig
 import de.koenidv.spheres.domain.Birthday
 import de.koenidv.spheres.domain.FREE_CONNECTIONS_LIMIT
 import de.koenidv.spheres.domain.INTERVALS
+import de.koenidv.spheres.domain.Person
 import de.koenidv.spheres.domain.UNTRACKED_COLOR
 import de.koenidv.spheres.domain.birthdayToEpochMillis
 import de.koenidv.spheres.domain.canAddPerson
@@ -41,7 +56,9 @@ import de.koenidv.spheres.domain.epochMillisToBirthday
 import de.koenidv.spheres.domain.formatBirthday
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.platform.PickedContact
+import de.koenidv.spheres.platform.haptic
 import de.koenidv.spheres.platform.rememberContactPickerLauncher
+import de.koenidv.spheres.ui.components.AvatarRender
 import de.koenidv.spheres.ui.components.rememberDatePicker
 import de.koenidv.spheres.ui.components.ButtonSize
 import de.koenidv.spheres.ui.components.Field
@@ -64,6 +81,8 @@ import de.koenidv.spheres.ui.theme.SansFontFamily
 import de.koenidv.spheres.ui.theme.parseHexColor
 import de.koenidv.spheres.ui.theme.tintColor
 
+private enum class AddPersonSubView { FORM, AVATAR, LOCATION }
+
 @Composable
 fun AddPersonSheet(
     sheet: SheetState.AddPerson
@@ -72,6 +91,7 @@ fun AddPersonSheet(
     val spheres = state.spheres
     val people = state.people
 
+    var subView by remember { mutableStateOf(AddPersonSubView.FORM) }
     var batch by remember { mutableStateOf<List<PickedContact>?>(null) }
     var skipped by remember { mutableIntStateOf(0) }
     var name by remember { mutableStateOf(sheet.name ?: "") }
@@ -82,6 +102,11 @@ fun AddPersonSheet(
     var city by remember { mutableStateOf("") }
     var address by remember { mutableStateOf<String?>(null) }
     var country by remember { mutableStateOf<String?>(null) }
+    var lat by remember { mutableStateOf<Double?>(null) }
+    var lng by remember { mutableStateOf<Double?>(null) }
+    var avatar by remember { mutableStateOf<AvatarConfig?>(null) }
+    var photoBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var photoBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var contactId by remember { mutableStateOf<String?>(null) }
     var contactName by remember { mutableStateOf<String?>(null) }
     var phoneNumbers by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -179,11 +204,15 @@ fun AddPersonSheet(
                         city = city.trim().ifEmpty { null },
                         address = address,
                         country = country,
+                        lat = lat,
+                        lng = lng,
+                        avatar = avatar,
+                        photoBytes = photoBytes,
                         contactId = contactId,
                         contactName = contactName,
                         phoneNumbers = phoneNumbers,
                     )
-                    if (city.isNotBlank()) {
+                    if (city.isNotBlank() && (lat == null || lng == null)) {
                         SpheresStore.geocodeMissingCities()
                     }
                     SpheresStore.showToast("Added $n")
@@ -193,12 +222,130 @@ fun AddPersonSheet(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
-    ) {
+    val accentHex = intervalInfo(interval).color
+    val accentColor = parseHexColor(accentHex)
+
+    AnimatedContent(
+        targetState = subView,
+        transitionSpec = {
+            (fadeIn(tween(140)) togetherWith fadeOut(tween(110))).using(
+                SizeTransform(clip = false)
+            )
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) { currentView ->
+        when (currentView) {
+            AddPersonSubView.AVATAR -> {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    SubViewHeader(
+                        title = "Avatar",
+                        onBack = { subView = AddPersonSubView.FORM }
+                    )
+                    AvatarEditor(
+                        stateKey = "add_person_avatar",
+                        name = name.trim().ifEmpty { "New" },
+                        accentHex = accentHex,
+                        initialAvatar = avatar,
+                        initialPhotoBytes = photoBytes,
+                        initialPhotoBitmap = photoBitmap,
+                        saveLabel = "Done",
+                        onSave = { normalizedAvatar, newBytes, newBitmap, willRemovePhoto ->
+                            avatar = normalizedAvatar
+                            if (willRemovePhoto) {
+                                photoBytes = null
+                                photoBitmap = null
+                            } else if (newBytes != null) {
+                                photoBytes = newBytes
+                                photoBitmap = newBitmap
+                            }
+                            subView = AddPersonSubView.FORM
+                        }
+                    )
+                }
+            }
+
+            AddPersonSubView.LOCATION -> {
+                val cleanCity = city.trim().ifEmpty { null }
+                val hasLoc = cleanCity != null || !address.isNullOrBlank()
+                val existingLabel = listOfNotNull(address, cleanCity).joinToString(", ").ifBlank { null }
+                val initialPlace = remember(lat, lng, cleanCity, address, country) {
+                    val la = lat
+                    val ln = lng
+                    val title = address ?: cleanCity
+                    if (la != null && ln != null && title != null) {
+                        PlaceResult(
+                            title = title,
+                            subtitle = if (address != null) listOfNotNull(cleanCity, country).joinToString(", ") else country.orEmpty(),
+                            city = cleanCity,
+                            address = address,
+                            country = country,
+                            lat = la,
+                            lng = ln,
+                            kind = if (address != null) PlaceKind.ADDRESS else PlaceKind.CITY,
+                        )
+                    } else null
+                }
+                val personPreview = remember(name, interval, avatar, cleanCity, address, country, lat, lng) {
+                    Person(
+                        id = "__draft__",
+                        name = name.trim().ifEmpty { "New" },
+                        intervalDays = interval,
+                        avatar = avatar,
+                        city = cleanCity,
+                        address = address,
+                        country = country,
+                        lat = lat,
+                        lng = lng,
+                        createdAt = 0L,
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    SubViewHeader(
+                        title = "Location",
+                        onBack = { subView = AddPersonSubView.FORM }
+                    )
+                    LocationEditor(
+                        stateKey = "add_person_location",
+                        personPreview = personPreview,
+                        initialPlace = initialPlace,
+                        initialPrecision = if (address != null) PlaceKind.ADDRESS else PlaceKind.CITY,
+                        hasExistingLocation = hasLoc,
+                        existingLocationLabel = existingLabel,
+                        saveLabel = "Done",
+                        onSavePlace = { newCity, newAddress, newCountry, newLat, newLng ->
+                            city = newCity.orEmpty()
+                            address = newAddress
+                            country = newCountry
+                            lat = newLat
+                            lng = newLng
+                            subView = AddPersonSubView.FORM
+                        },
+                        onClear = {
+                            city = ""
+                            address = null
+                            country = null
+                            lat = null
+                            lng = null
+                            subView = AddPersonSubView.FORM
+                        }
+                    )
+                }
+            }
+
+            AddPersonSubView.FORM -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
         val currentBatch = batch
         val batchExceedsLimit = currentBatch != null && !canAddPerson(people.size, state.isUnlimited, currentBatch.size)
         if (currentBatch != null) {
@@ -275,18 +422,44 @@ fun AddPersonSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(PxClipShape)
-                        .background(FieldBg),
-                    contentAlignment = Alignment.Center
-                ) {
-                    PixelAvatar(
-                        name = name.trim().ifEmpty { "New" },
-                        colorHex = intervalInfo(interval).color,
-                        size = 52.dp
-                    )
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .background(Color.White)
+                            .border(2.dp, accentColor)
+                            .clickable {
+                                haptic()
+                                subView = AddPersonSubView.AVATAR
+                            }
+                            .padding(4.dp)
+                    ) {
+                        AvatarRender(
+                            name = name.trim().ifEmpty { "New" },
+                            colorHex = accentHex,
+                            config = avatar,
+                            photoOverride = photoBitmap,
+                            size = 56.dp
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 5.dp, y = 5.dp)
+                            .size(20.dp)
+                            .background(Color.White)
+                            .border(1.5.dp, accentColor)
+                            .clickable {
+                                haptic()
+                                subView = AddPersonSubView.AVATAR
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        PixelIcon(
+                            name = IconName.EDIT,
+                            size = 11.dp,
+                            tint = accentColor
+                        )
+                    }
                 }
 
                 Box(
@@ -318,12 +491,86 @@ fun AddPersonSheet(
                 }
             }
 
-            Field(label = "City (optional)") {
-                PixelTextInput(
-                    value = city,
-                    onValueChange = { city = it },
-                    placeholder = "Where do they live?"
-                )
+            val cleanCity = city.trim()
+            val hasLocation = cleanCity.isNotEmpty() || !address.isNullOrBlank()
+            val primaryLocation = address ?: cleanCity
+            val secondaryLocation = when {
+                address != null -> listOfNotNull(cleanCity.ifEmpty { null }, country).joinToString(", ")
+                cleanCity.isNotEmpty() -> country.orEmpty()
+                else -> ""
+            }
+            Field(label = "Location (optional)") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clip(PxClipShape)
+                        .background(FieldBg)
+                        .clickable {
+                            haptic()
+                            subView = AddPersonSubView.LOCATION
+                        }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    PixelIcon(
+                        name = if (address != null) IconName.PIN else IconName.MAP,
+                        size = 18.dp,
+                        tint = if (hasLocation) accentColor else Ink.copy(alpha = 0.45f)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (hasLocation) primaryLocation else "Add city or address",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(
+                                fontFamily = SansFontFamily(),
+                                fontSize = 16.sp,
+                                color = if (hasLocation) Ink else Ink.copy(alpha = 0.35f)
+                            )
+                        )
+                        if (hasLocation && secondaryLocation.isNotBlank()) {
+                            Text(
+                                text = secondaryLocation,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(
+                                    fontFamily = SansFontFamily(),
+                                    fontSize = 13.sp,
+                                    color = Muted
+                                )
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (hasLocation) {
+                            Box(
+                                modifier = Modifier.clickable {
+                                    city = ""
+                                    address = null
+                                    country = null
+                                    lat = null
+                                    lng = null
+                                }
+                            ) {
+                                PixelIcon(
+                                    name = IconName.CLOSE,
+                                    size = 16.dp,
+                                    tint = Ink.copy(alpha = 0.45f)
+                                )
+                            }
+                        }
+                        PixelIcon(
+                            name = IconName.CHEVRON_RIGHT,
+                            size = 16.dp,
+                            tint = Ink.copy(alpha = 0.4f)
+                        )
+                    }
+                }
             }
         }
 
@@ -440,6 +687,35 @@ fun AddPersonSheet(
             fullWidth = true,
             enabled = currentBatch != null || name.isNotBlank(),
             onClick = submit
+        )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubViewHeader(
+    title: String,
+    onBack: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        PixelIconButton(
+            icon = IconName.BACK,
+            onClick = onBack,
+            size = 36.dp
+        )
+        Text(
+            text = title,
+            style = TextStyle(
+                fontFamily = PixelFontFamily(),
+                fontSize = 20.sp,
+                color = Ink
+            )
         )
     }
 }

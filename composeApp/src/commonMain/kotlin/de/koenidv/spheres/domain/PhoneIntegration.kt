@@ -96,5 +96,14 @@ fun matchPersonForCall(
         if (numberMatches.size == 1) return numberMatches.first()
     }
 
+    // Call notifications often only carry the contact's display name; match linked contacts only.
+    val callName = call.contactName?.trim()?.takeIf { it.isNotEmpty() }
+    if (callName != null) {
+        val nameMatches = people.filter { person ->
+            person.contactName?.trim().equals(callName, ignoreCase = true)
+        }
+        if (nameMatches.size == 1) return nameMatches.first()
+    }
+
     return null
 }

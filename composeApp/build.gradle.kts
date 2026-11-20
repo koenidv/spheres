@@ -18,9 +18,6 @@ abstract class GenerateBuildFlagsTask : DefaultTask() {
     @get:Input
     abstract val paywallEnabled: Property<Boolean>
 
-    @get:Input
-    abstract val phoneLoggingEnabled: Property<Boolean>
-
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
@@ -34,7 +31,6 @@ abstract class GenerateBuildFlagsTask : DefaultTask() {
 
             object BuildFlags {
                 const val PAYWALL_ENABLED: Boolean = ${paywallEnabled.get()}
-                const val PHONE_LOGGING_ENABLED: Boolean = ${phoneLoggingEnabled.get()}
             }
             """.trimIndent() + "\n"
         )
@@ -51,14 +47,6 @@ val generateBuildFlags = tasks.register<GenerateBuildFlagsTask>("generateBuildFl
     val envPaywall = providers.environmentVariable("PAYWALL_ENABLED").orElse("")
     paywallEnabled.set(
         gradlePaywall.zip(envPaywall) { g, e ->
-            isEnabled(g) && (e.isBlank() || isEnabled(e))
-        }
-    )
-
-    val gradlePhoneLogging = providers.gradleProperty("spheres.phoneLoggingEnabled").orElse("false")
-    val envPhoneLogging = providers.environmentVariable("PHONE_LOGGING_ENABLED").orElse("")
-    phoneLoggingEnabled.set(
-        gradlePhoneLogging.zip(envPhoneLogging) { g, e ->
             isEnabled(g) && (e.isBlank() || isEnabled(e))
         }
     )

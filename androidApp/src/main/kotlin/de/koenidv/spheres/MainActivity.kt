@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AndroidPlatformContext.currentActivity = this
+        AndroidPlatformContext.onActivityResumed()
         handleAuthIntent(intent)
         SpheresStore.syncPhoneCalls()
         if (AndroidPlatformContext.pendingAuthContinuation != null) {

@@ -1,6 +1,5 @@
 package de.koenidv.spheres.platform
 
-import de.koenidv.spheres.BuildFlags
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
@@ -9,6 +8,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -21,7 +21,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.provider.CallLog
+import android.provider.Settings
 import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -75,6 +75,7 @@ import de.koenidv.spheres.ui.theme.Muted
 import de.koenidv.spheres.ui.theme.PixelFontFamily
 import de.koenidv.spheres.ui.theme.SansFontFamily
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.view.WindowCompat
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
@@ -110,6 +111,7 @@ import de.koenidv.spheres.domain.DEFAULT_UNLIMITED_PRICE
 import de.koenidv.spheres.domain.UNLIMITED_PRODUCT_ID
 import de.koenidv.spheres.domain.UNLIMITED_PURCHASE_OPTION_ID
 import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -123,6 +125,13 @@ object AndroidPlatformContext {
     private var appContextRef: WeakReference<Context>? = null
     private var currentActivityRef: WeakReference<Activity>? = null
     var pendingAuthContinuation: CancellableContinuation<String>? = null
+    var pendingSettingsReturn: CompletableDeferred<Unit>? = null
+
+    /** Call from the activity's onResume; releases a flow waiting for the user to return from system settings. */
+    fun onActivityResumed() {
+        pendingSettingsReturn?.complete(Unit)
+        pendingSettingsReturn = null
+    }
 
     var applicationContext: Context
         get() = appContextRef?.get() ?: error("AndroidPlatformContext not initialized")
@@ -417,100 +426,91 @@ class NotificationActionReceiver : BroadcastReceiver() {
 }
 
 actual object PlatformPhoneIntegration {
-    actual fun isSupported(): Boolean = BuildFlags.PHONE_LOGGING_ENABLED
+    actual fun isSupported(): Boolean = true
 
+    /** True while the user has granted Spheres notification access in system settings. */
     actual fun isGranted(): Boolean {
-        if (!BuildFlags.PHONE_LOGGING_ENABLED) return false
         val context = AndroidPlatformContext.applicationContext
-        return context.checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+        return NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
     }
 
+    /**
+     * Must only be called after the user accepted the in-app disclosure. Asks for the optional
+     * contacts permission, then opens the system notification access screen and waits for the
+     * user to come back.
+     */
     actual suspend fun requestPermission(): Boolean {
-        if (!BuildFlags.PHONE_LOGGING_ENABLED) return false
-        if (isGranted()) return true
         val activity = AndroidPlatformContext.currentActivity ?: return false
-        val permissions = arrayOf(
-            Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS
-        )
-        ActivityCompat.requestPermissions(activity, permissions, 1002)
-        for (i in 0 until 20) {
-            delay(500)
-            if (isGranted()) return true
+        if (activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.READ_CONTACTS), 1002)
+            // Contacts are optional (they only improve matching), so just give the dialog a moment.
+            for (i in 0 until 20) {
+                delay(500)
+                if (activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) break
+            }
         }
+        if (isGranted()) return true
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
+                Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                ComponentName(activity, CallNotificationListenerService::class.java).flattenToString()
+            )
+        } else {
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        }
+        val returned = CompletableDeferred<Unit>()
+        AndroidPlatformContext.pendingSettingsReturn = returned
+        try {
+            activity.startActivity(intent)
+        } catch (_: Exception) {
+            AndroidPlatformContext.pendingSettingsReturn = null
+            return false
+        }
+        returned.await()
         return isGranted()
     }
 
     actual fun fetchCallsLongerThan(minDurationSeconds: Long, sinceMillis: Long): List<PhoneCallRecord> {
-        if (!BuildFlags.PHONE_LOGGING_ENABLED || !isGranted()) return emptyList()
+        if (!isGranted()) return emptyList()
         val context = AndroidPlatformContext.applicationContext
         val canReadContacts =
             context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
-        val results = mutableListOf<PhoneCallRecord>()
-        val projection = arrayOf(
-            CallLog.Calls._ID,
-            CallLog.Calls.NUMBER,
-            CallLog.Calls.CACHED_NAME,
-            CallLog.Calls.DATE,
-            CallLog.Calls.DURATION,
-            CallLog.Calls.TYPE,
-        )
-        val selection =
-            "${CallLog.Calls.DURATION} > ? AND ${CallLog.Calls.DATE} > ? AND ${CallLog.Calls.TYPE} IN (${CallLog.Calls.INCOMING_TYPE}, ${CallLog.Calls.OUTGOING_TYPE})"
-        val selectionArgs = arrayOf(minDurationSeconds.toString(), sinceMillis.toString())
+        return CallDetectionStore.load()
+            .filter { it.durationSeconds > minDurationSeconds && it.startedAt > sinceMillis }
+            .sortedBy { it.startedAt }
+            .map { call ->
+                if (!canReadContacts) return@map call
+                val lookup = when {
+                    !call.number.isNullOrBlank() -> lookupContactByNumber(context, call.number)
+                    !call.contactName.isNullOrBlank() -> lookupContactByName(context, call.contactName)
+                    else -> null
+                } ?: return@map call
+                call.copy(contactId = lookup.first, contactName = call.contactName ?: lookup.second)
+            }
+    }
 
-        try {
+    private fun lookupContactByName(context: Context, name: String): Pair<String?, String?>? {
+        return try {
+            val uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_FILTER_URI, Uri.encode(name))
             context.contentResolver.query(
-                CallLog.Calls.CONTENT_URI,
-                projection,
-                selection,
-                selectionArgs,
-                "${CallLog.Calls.DATE} ASC"
+                uri,
+                arrayOf(ContactsContract.Contacts.LOOKUP_KEY, ContactsContract.Contacts.DISPLAY_NAME),
+                null,
+                null,
+                null
             )?.use { cursor ->
-                val idIdx = cursor.getColumnIndex(CallLog.Calls._ID)
-                val numberIdx = cursor.getColumnIndex(CallLog.Calls.NUMBER)
-                val nameIdx = cursor.getColumnIndex(CallLog.Calls.CACHED_NAME)
-                val dateIdx = cursor.getColumnIndex(CallLog.Calls.DATE)
-                val durationIdx = cursor.getColumnIndex(CallLog.Calls.DURATION)
-
-                while (cursor.moveToNext()) {
-                    val id = if (idIdx >= 0) cursor.getString(idIdx) else null
-                    val number = if (numberIdx >= 0) cursor.getString(numberIdx) else null
-                    var contactName = if (nameIdx >= 0) cursor.getString(nameIdx)?.takeIf { it.isNotBlank() } else null
-                    var contactId: String? = null
-                    val startedAt = if (dateIdx >= 0) cursor.getLong(dateIdx) else 0L
-                    val durationSeconds = if (durationIdx >= 0) cursor.getLong(durationIdx) else 0L
-
-                    if (canReadContacts && !number.isNullOrBlank()) {
-                        val lookup = lookupContactByNumber(context, number)
-                        if (lookup != null) {
-                            contactId = lookup.first
-                            if (contactName == null) {
-                                contactName = lookup.second
-                            }
-                        }
-                    }
-
-                    if (!id.isNullOrBlank() && startedAt > 0L) {
-                        results.add(
-                            PhoneCallRecord(
-                                id = id,
-                                number = number,
-                                contactId = contactId,
-                                contactName = contactName,
-                                startedAt = startedAt,
-                                durationSeconds = durationSeconds,
-                            )
-                        )
-                    }
+                // Only trust an unambiguous exact match.
+                if (cursor.count == 1 && cursor.moveToFirst() &&
+                    cursor.getString(1)?.equals(name, ignoreCase = true) == true
+                ) {
+                    cursor.getString(0)?.takeIf { it.isNotBlank() } to cursor.getString(1)
+                } else {
+                    null
                 }
             }
-        } catch (_: SecurityException) {
-            return emptyList()
         } catch (_: Exception) {
-            return emptyList()
+            null
         }
-        return results
     }
 
     private fun lookupContactByNumber(context: Context, phoneNumber: String): Pair<String?, String?>? {

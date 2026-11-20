@@ -156,6 +156,24 @@ fun SettingsScreen(
         PlatformPhoneIntegration.isSupported()
     }
 
+    var phoneDisclosure by remember { mutableStateOf(false) }
+    if (phoneDisclosure) {
+        PhoneIntegrationDisclosureDialog(
+            onCancel = { phoneDisclosure = false },
+            onAccept = {
+                phoneDisclosure = false
+                scope.launch {
+                    val granted = PlatformPhoneIntegration.requestPermission()
+                    if (granted) {
+                        SpheresStore.setPhoneIntegrationEnabled(true)
+                    } else {
+                        SpheresStore.showToast("Notification access was not allowed")
+                    }
+                }
+            }
+        )
+    }
+
     if (deleteConfirm) {
         DeleteAccountDialog(
             onCancel = { deleteConfirm = false },
@@ -539,77 +557,68 @@ fun SettingsScreen(
                     }
                 }
 
-                Card {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        CardLabel(title = "Integrations", icon = IconName.PHONE)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = if (phoneSupported) {
-                                    "Automatically log phone check-ins"
-                                } else {
-                                    "Phone call integration is not supported on this device"
-                                },
-                                style = TextStyle(
-                                    fontFamily = SansFontFamily(),
-                                    fontSize = 15.sp,
-                                    lineHeight = 24.sp,
-                                    color = Ink
-                                ),
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            if (phoneSupported) {
-                                val phoneEnabled = state.phoneIntegrationEnabled
-                                val phoneKnobOffset by animateDpAsState(
-                                    targetValue = if (phoneEnabled) 28.dp else 4.dp,
-                                    animationSpec = tween(150)
+                if (phoneSupported) {
+                    Card {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            CardLabel(title = "Integrations", icon = IconName.PHONE)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(
+                                    text = "Automatically log phone check-ins",
+                                    style = TextStyle(
+                                        fontFamily = SansFontFamily(),
+                                        fontSize = 15.sp,
+                                        lineHeight = 24.sp,
+                                        color = Ink
+                                    ),
+                                    modifier = Modifier.weight(1f)
                                 )
 
-                                Box(
-                                    modifier = Modifier
-                                        .size(width = 56.dp, height = 32.dp)
-                                        .clip(PxClipShape)
-                                        .background(if (phoneEnabled) Ink else Ink.copy(alpha = 0.15f))
-                                        .clickable {
-                                            if (phoneEnabled) {
-                                                SpheresStore.setPhoneIntegrationEnabled(false)
-                                            } else {
-                                                scope.launch {
-                                                    val granted = PlatformPhoneIntegration.requestPermission()
-                                                    if (granted) {
-                                                        SpheresStore.setPhoneIntegrationEnabled(true)
-                                                    } else {
-                                                        SpheresStore.showToast("Call log permission was not allowed")
-                                                    }
-                                                }
-                                            }
-                                        }
-                                ) {
+                                if (phoneSupported) {
+                                    val phoneEnabled = state.phoneIntegrationEnabled
+                                    val phoneKnobOffset by animateDpAsState(
+                                        targetValue = if (phoneEnabled) 28.dp else 4.dp,
+                                        animationSpec = tween(150)
+                                    )
+
                                     Box(
                                         modifier = Modifier
-                                            .offset(x = phoneKnobOffset, y = 4.dp)
-                                            .size(24.dp)
+                                            .size(width = 56.dp, height = 32.dp)
                                             .clip(PxClipShape)
-                                            .background(Color.White)
-                                    )
+                                            .background(if (phoneEnabled) Ink else Ink.copy(alpha = 0.15f))
+                                            .clickable {
+                                                if (phoneEnabled) {
+                                                    SpheresStore.setPhoneIntegrationEnabled(false)
+                                                } else {
+                                                    phoneDisclosure = true
+                                                }
+                                            }
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .offset(x = phoneKnobOffset, y = 4.dp)
+                                                .size(24.dp)
+                                                .clip(PxClipShape)
+                                                .background(Color.White)
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        if (phoneSupported) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Adds check-ins for calls longer than 10 minutes.",
-                                style = TextStyle(
-                                    fontFamily = SansFontFamily(),
-                                    fontSize = 13.sp,
-                                    color = Muted
+                            if (phoneSupported) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Adds check-ins for calls longer than 10 minutes, detected from call notifications.",
+                                    style = TextStyle(
+                                        fontFamily = SansFontFamily(),
+                                        fontSize = 13.sp,
+                                        color = Muted
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
@@ -676,6 +685,62 @@ private fun DeleteAccountDialog(onCancel: () -> Unit, onConfirm: () -> Unit) {
             )
             PixelButton(
                 text = "Cancel",
+                variant = ButtonVariant.SECONDARY,
+                fullWidth = true,
+                onClick = onCancel
+            )
+        }
+    }
+}
+
+@Composable
+private fun PhoneIntegrationDisclosureDialog(onCancel: () -> Unit, onAccept: () -> Unit) {
+    val body = TextStyle(fontFamily = SansFontFamily(), fontSize = 14.sp, lineHeight = 21.sp, color = Muted)
+    Dialog(onDismissRequest = onCancel) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 360.dp)
+                .fillMaxWidth()
+                .clip(SteppedPolygonShape(steps = 3))
+                .background(Color.White)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Log calls automatically?",
+                style = TextStyle(fontFamily = PixelFontFamily(), fontSize = 22.sp, lineHeight = 28.sp, color = Ink)
+            )
+            Text(
+                text = "To add a check-in when you talk to someone for a while, Spheres needs notification access. " +
+                    "Next, Android will open its notification access settings, where you turn on Spheres.",
+                style = body
+            )
+            Text(
+                text = "What Spheres reads: only the ongoing-call notification shown by your phone, WhatsApp, " +
+                    "Telegram or other calling apps while a call is running. From it, Spheres uses the caller's " +
+                    "name or number, plus when the call started and how long it lasted.",
+                style = body
+            )
+            Text(
+                text = "What Spheres does not do: it does not read your other notifications or messages, " +
+                    "listen to calls, or read your call history. Call details stay on your device and are " +
+                    "only used to log a check-in for a person you already track.",
+                style = body
+            )
+            Text(
+                text = "Only calls over 10 minutes are logged. You can turn this off here, or revoke access any " +
+                    "time in Android's notification access settings.",
+                style = body
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            PixelButton(
+                text = "Continue",
+                variant = ButtonVariant.PRIMARY,
+                fullWidth = true,
+                onClick = onAccept
+            )
+            PixelButton(
+                text = "Not now",
                 variant = ButtonVariant.SECONDARY,
                 fullWidth = true,
                 onClick = onCancel

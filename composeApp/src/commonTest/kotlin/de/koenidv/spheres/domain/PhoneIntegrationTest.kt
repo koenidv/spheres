@@ -111,4 +111,12 @@ class PhoneIntegrationTest {
         )
         assertNull(matchPersonForCall(call, listOf(alex)))
     }
+
+    @Test
+    fun matchPersonForCallFallsBackToUniqueContactName() {
+        val anna = person("a", "Anna").copy(contactName = "Anna M.")
+        val call = PhoneCallRecord(id = "1", contactName = "anna m.", startedAt = 1L, durationSeconds = 700L)
+        assertEquals("a", matchPersonForCall(call, listOf(anna, person("b", "Ben")))?.id)
+        assertNull(matchPersonForCall(call, listOf(anna, person("c", "Anna").copy(contactName = "Anna M."))))
+    }
 }

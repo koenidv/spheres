@@ -39,6 +39,14 @@ Fetch or create the App Store distribution certificate and provisioning profile
 
 Build and upload to TestFlight
 
+### ios release
+
+```sh
+[bundle exec] fastlane ios release
+```
+
+Build a release and upload it to App Store Connect (no submission)
+
 ----
 
 This README.md is auto-generated and will be re-generated every time [_fastlane_](https://fastlane.tools) is run.
