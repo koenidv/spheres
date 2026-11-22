@@ -2,6 +2,7 @@ package de.koenidv.spheres.platform
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlarmManager
 import android.app.AlertDialog
 import android.app.Notification
 import android.app.NotificationChannel
@@ -23,6 +24,8 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
 import android.provider.ContactsContract
+import org.json.JSONArray
+import org.json.JSONObject
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -321,45 +324,23 @@ actual object PlatformNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        for (item in items) {
-            if (item.at <= now && now - item.at < 24 * 60 * 60 * 1000L) {
-                val notificationId = item.id.hashCode()
-                val checkInAction = buildNotificationAction(
-                    context = context,
-                    notificationId = notificationId,
-                    personId = item.personId,
-                    action = NotificationActionType.CHECKIN,
-                    title = "Check in",
-                    requestCode = (item.id + ":checkin").hashCode()
-                )
-                val snoozeAction = buildNotificationAction(
-                    context = context,
-                    notificationId = notificationId,
-                    personId = item.personId,
-                    action = NotificationActionType.SNOOZE,
-                    title = "Snooze 3d",
-                    requestCode = (item.id + ":snooze").hashCode()
-                )
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        val reminderPrefs = context.getSharedPreferences(REMINDER_PREFS, Context.MODE_PRIVATE)
+        val previous = loadScheduled(reminderPrefs)
+        val posted = reminderPrefs.getStringSet(KEY_POSTED, emptySet()) ?: emptySet()
 
-                val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    Notification.Builder(context, CHANNEL_ID)
-                } else {
-                    @Suppress("DEPRECATION")
-                    Notification.Builder(context)
-                }
-                    .setContentTitle(item.title)
-                    .setContentText(item.body)
-                    .setSmallIcon(R.drawable.ic_stat_spheres)
-                .setColor(0xFF9D7CE7.toInt())
-                    .setContentIntent(contentPendingIntent)
-                    .addAction(checkInAction)
-                    .addAction(snoozeAction)
-                    .setAutoCancel(true)
-                    .build()
+        // Drop alarms from the previous schedule; they are re-registered below if still relevant.
+        previous.forEach { alarmManager?.cancel(reminderAlarmIntent(context, it)) }
 
-                manager.notify(notificationId, notification)
-            }
-        }
+        val upcoming = items.filter { it.at > now && it.at - now < REMINDER_HORIZON_MS }
+        upcoming.forEach { scheduleAlarm(context, alarmManager, it) }
+        saveScheduled(reminderPrefs, upcoming)
+
+        // Items that came due while the app was closed were posted by their alarm. Anything due
+        // and not yet posted (e.g. just created or snoozed into the past) is shown right away.
+        val due = items.filter { it.at <= now && now - it.at < 24 * 60 * 60 * 1000L }
+        due.filter { it.id !in posted }.forEach { postReminder(context, it) }
+        reminderPrefs.edit().putStringSet(KEY_POSTED, (posted + due.map { it.id }).intersect(items.map { it.id }.toSet())).apply()
 
         if (overdueCount > 0) {
             val summaryNotification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -378,6 +359,117 @@ actual object PlatformNotifications {
 
             manager.notify(9999, summaryNotification)
         }
+    }
+
+    private const val REMINDER_PREFS = "spheres_reminder_alarms"
+    private const val KEY_SCHEDULED = "scheduled"
+    private const val KEY_POSTED = "posted"
+    private const val REMINDER_HORIZON_MS = 30L * 24 * 60 * 60 * 1000
+
+    private fun reminderAlarmIntent(context: Context, item: PlatformReminderItem): PendingIntent {
+        val intent = Intent(context, ReminderAlarmReceiver::class.java).apply {
+            putExtra(ReminderAlarmReceiver.EXTRA_ID, item.id)
+            putExtra(ReminderAlarmReceiver.EXTRA_TITLE, item.title)
+            putExtra(ReminderAlarmReceiver.EXTRA_BODY, item.body)
+            putExtra(ReminderAlarmReceiver.EXTRA_PERSON_ID, item.personId)
+            putExtra(ReminderAlarmReceiver.EXTRA_AT, item.at)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            item.id.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun scheduleAlarm(context: Context, alarmManager: AlarmManager?, item: PlatformReminderItem) {
+        // Inexact (but doze-safe) alarm: needs no special permission and may drift a few minutes.
+        alarmManager?.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, item.at, reminderAlarmIntent(context, item))
+    }
+
+    private fun saveScheduled(prefs: SharedPreferences, items: List<PlatformReminderItem>) {
+        val array = JSONArray()
+        items.forEach {
+            array.put(
+                JSONObject()
+                    .put("id", it.id).put("title", it.title).put("body", it.body)
+                    .put("at", it.at).put("personId", it.personId)
+            )
+        }
+        prefs.edit().putString(KEY_SCHEDULED, array.toString()).apply()
+    }
+
+    private fun loadScheduled(prefs: SharedPreferences): List<PlatformReminderItem> {
+        val raw = prefs.getString(KEY_SCHEDULED, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            (0 until array.length()).map {
+                val o = array.getJSONObject(it)
+                PlatformReminderItem(o.getString("id"), o.getString("title"), o.getString("body"), o.getLong("at"), o.getString("personId"))
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Re-registers all alarms after a reboot, which clears them. */
+    internal fun restoreAlarms(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        val now = currentTimeMillis()
+        loadScheduled(context.getSharedPreferences(REMINDER_PREFS, Context.MODE_PRIVATE))
+            .filter { it.at > now - 24 * 60 * 60 * 1000L }
+            .forEach { scheduleAlarm(context, alarmManager, it) }
+    }
+
+    internal fun markPosted(context: Context, id: String) {
+        val prefs = context.getSharedPreferences(REMINDER_PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putStringSet(KEY_POSTED, (prefs.getStringSet(KEY_POSTED, emptySet()) ?: emptySet()) + id).apply()
+    }
+
+    internal fun postReminder(context: Context, item: PlatformReminderItem) {
+        ensureChannel(context)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (!isGranted()) return
+        val launchIntent = (context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent(Intent.ACTION_MAIN).apply { setPackage(context.packageName) }).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context, 0, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notificationId = item.id.hashCode()
+        val checkInAction = buildNotificationAction(
+            context = context,
+            notificationId = notificationId,
+            personId = item.personId,
+            action = NotificationActionType.CHECKIN,
+            title = "Check in",
+            requestCode = (item.id + ":checkin").hashCode()
+        )
+        val snoozeAction = buildNotificationAction(
+            context = context,
+            notificationId = notificationId,
+            personId = item.personId,
+            action = NotificationActionType.SNOOZE,
+            title = "Snooze 3d",
+            requestCode = (item.id + ":snooze").hashCode()
+        )
+        val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(context)
+        }
+            .setContentTitle(item.title)
+            .setContentText(item.body)
+            .setSmallIcon(R.drawable.ic_stat_spheres)
+            .setColor(0xFF9D7CE7.toInt())
+            .setContentIntent(contentPendingIntent)
+            .addAction(checkInAction)
+            .addAction(snoozeAction)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(notificationId, notification)
     }
 
     private fun buildNotificationAction(
@@ -401,6 +493,39 @@ actual object PlatformNotifications {
         )
         @Suppress("DEPRECATION")
         return Notification.Action.Builder(0, title, pendingIntent).build()
+    }
+}
+
+/** Fires at a reminder's scheduled time, even when the app process is not running. */
+class ReminderAlarmReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        AndroidPlatformContext.applicationContext = context.applicationContext
+        val id = intent.getStringExtra(EXTRA_ID) ?: return
+        val item = PlatformReminderItem(
+            id = id,
+            title = intent.getStringExtra(EXTRA_TITLE) ?: return,
+            body = intent.getStringExtra(EXTRA_BODY) ?: "",
+            at = intent.getLongExtra(EXTRA_AT, 0L),
+            personId = intent.getStringExtra(EXTRA_PERSON_ID) ?: return,
+        )
+        PlatformNotifications.postReminder(context, item)
+        PlatformNotifications.markPosted(context, id)
+    }
+
+    companion object {
+        const val EXTRA_ID = "reminder_id"
+        const val EXTRA_TITLE = "title"
+        const val EXTRA_BODY = "body"
+        const val EXTRA_PERSON_ID = "person_id"
+        const val EXTRA_AT = "at"
+    }
+}
+
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        AndroidPlatformContext.applicationContext = context.applicationContext
+        PlatformNotifications.restoreAlarms(context)
     }
 }
 

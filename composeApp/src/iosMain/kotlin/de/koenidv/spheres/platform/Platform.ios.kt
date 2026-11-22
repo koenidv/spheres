@@ -317,7 +317,8 @@ actual object PlatformNotifications {
         UIApplication.sharedApplication.setApplicationIconBadgeNumber(overdueCount.toLong())
 
         val now = currentTimeMillis()
-        for (item in items) {
+        // iOS keeps at most 64 pending local notifications; items are sorted by time.
+        for (item in items.take(60)) {
             val delaySeconds = ((item.at - now) / 1000.0).coerceAtLeast(1.0)
             val content = UNMutableNotificationContent().apply {
                 setTitle(item.title)
