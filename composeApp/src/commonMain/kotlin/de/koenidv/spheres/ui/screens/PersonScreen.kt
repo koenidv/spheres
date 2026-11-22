@@ -687,7 +687,16 @@ fun PersonScreen(
                     val contact = picked.firstOrNull() ?: return@rememberContactPickerLauncher
                     val cid = contact.contactId
                     if (!cid.isNullOrBlank()) {
-                        SpheresStore.linkContact(person.id, cid, contact.name, contact.phoneNumbers)
+                        SpheresStore.linkContact(
+                            personId = person.id,
+                            contactId = cid,
+                            contactName = contact.name,
+                            phoneNumbers = contact.phoneNumbers,
+                            birthday = contact.birthday,
+                            city = contact.city,
+                            address = contact.address,
+                            country = contact.country,
+                        )
                         SpheresStore.showToast("Linked ${contact.name}")
                     }
                 }

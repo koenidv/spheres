@@ -1488,6 +1488,10 @@ object SpheresStore {
         contactId: String,
         contactName: String?,
         phoneNumbers: List<String> = emptyList(),
+        birthday: Birthday? = null,
+        city: String? = null,
+        address: String? = null,
+        country: String? = null,
     ) {
         val cleanId = contactId.trim().ifEmpty { return }
         val cleanName = contactName?.trim()?.ifEmpty { null }
@@ -1496,11 +1500,33 @@ object SpheresStore {
         val numbers = phoneNumbers.ifEmpty { PlatformPhoneIntegration.getPhoneNumbersForContact(cleanId) }
         val uid = state.value.user?.uid
         val hashes = if (uid != null && numbers.isNotEmpty()) hashPhoneNumbers(numbers, uid) else emptyList()
+        val cleanCity = city?.trim()?.ifEmpty { null }
+        val cleanAddress = address?.trim()?.ifEmpty { null }
+        val cleanCountry = country?.trim()?.ifEmpty { null }
+        var shouldGeocode = false
         updatePerson(personId) { p ->
+            val hasLocation = !p.city.isNullOrBlank() ||
+                !p.address.isNullOrBlank() ||
+                !p.country.isNullOrBlank() ||
+                p.lat != null ||
+                p.lng != null
+            val nextCity = if (hasLocation) p.city else cleanCity
+            val nextAddress = if (hasLocation) p.address else cleanAddress
+            val nextCountry = if (hasLocation) p.country else cleanCountry
+            if (!hasLocation && nextCity != null && p.lat == null) {
+                shouldGeocode = true
+            }
             p.copy(
                 contactName = cleanName,
-                contactPhoneHashes = (p.contactPhoneHashes + hashes).distinct()
+                contactPhoneHashes = (p.contactPhoneHashes + hashes).distinct(),
+                birthday = p.birthday ?: birthday,
+                city = nextCity,
+                address = nextAddress,
+                country = nextCountry,
             )
+        }
+        if (shouldGeocode) {
+            geocodeMissingCities()
         }
     }
 

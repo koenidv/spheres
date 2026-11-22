@@ -200,7 +200,7 @@ fun DueScreen(
     }
 
     val caughtUp = overdue.isEmpty() && soon.isEmpty() && suggestions.isEmpty() && birthdays.isEmpty() && followUps.isEmpty()
-    val shownSuggestions = if (showAllSuggestions) suggestions else suggestions.take(8)
+    val shownSuggestions = if (showAllSuggestions) suggestions else suggestions.take(4)
 
     Box(
         modifier = modifier
@@ -524,45 +524,6 @@ fun DueScreen(
                 }
             }
 
-            if (suggestions.isNotEmpty()) {
-                SectionHeader("Keep in touch?", suggestions.size)
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    for (sg in shownSuggestions) {
-                        SuggestionRow(
-                            sg = sg,
-                            spheres = spheres,
-                            events = events,
-                            onOpen = { onNavigate("/people/${sg.person.id}") }
-                        )
-                    }
-                }
-
-                if (suggestions.size > 8) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .height(40.dp)
-                            .clip(PxClipShape)
-                            .background(FieldBg)
-                            .clickable { showAllSuggestions = !showAllSuggestions },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (showAllSuggestions) "Show fewer" else "Show ${suggestions.size - 8} more",
-                            style = TextStyle(
-                                fontFamily = PixelFontFamily(),
-                                fontSize = 15.sp,
-                                color = Ink
-                            )
-                        )
-                    }
-                }
-            }
-
             if (birthdays.isNotEmpty()) {
                 SectionHeader("Birthdays", birthdays.size)
                 Column(
@@ -624,6 +585,45 @@ fun DueScreen(
                                     SpheresStore.quickCheckIn(person.id)
                                 }
                             } else null
+                        )
+                    }
+                }
+            }
+
+            if (suggestions.isNotEmpty()) {
+                SectionHeader("Keep in touch?", suggestions.size)
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (sg in shownSuggestions) {
+                        SuggestionRow(
+                            sg = sg,
+                            spheres = spheres,
+                            events = events,
+                            onOpen = { onNavigate("/people/${sg.person.id}") }
+                        )
+                    }
+                }
+
+                if (suggestions.size > 4) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .height(40.dp)
+                            .clip(PxClipShape)
+                            .background(FieldBg)
+                            .clickable { showAllSuggestions = !showAllSuggestions },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (showAllSuggestions) "Show fewer" else "Show ${suggestions.size - 4} more",
+                            style = TextStyle(
+                                fontFamily = PixelFontFamily(),
+                                fontSize = 15.sp,
+                                color = Ink
+                            )
                         )
                     }
                 }

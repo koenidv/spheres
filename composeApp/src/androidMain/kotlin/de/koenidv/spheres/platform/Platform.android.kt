@@ -28,8 +28,9 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.provider.Settings
 import android.provider.ContactsContract
+import android.provider.ContactsPickerSessionContract
+import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -955,6 +956,40 @@ actual fun rememberContactPickerLauncher(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    if (Build.VERSION.SDK_INT >= 37) {
+        val sessionLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val sessionUri = if (result.resultCode == Activity.RESULT_OK) result.data?.data else null
+            if (sessionUri != null) {
+                scope.launch {
+                    val contacts = withContext(Dispatchers.IO) {
+                        resolveSessionContacts(context, sessionUri)
+                    }
+                    if (contacts.isNotEmpty()) {
+                        onPicked(contacts)
+                    }
+                }
+            }
+        }
+        return remember(sessionLauncher, allowMultiple) {
+            {
+                val intent = Intent(ContactsPickerSessionContract.ACTION_PICK_CONTACTS).apply {
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple)
+                    putStringArrayListExtra(
+                        ContactsPickerSessionContract.EXTRA_PICK_CONTACTS_REQUESTED_DATA_FIELDS,
+                        arrayListOf(
+                            ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+                            ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE,
+                            ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE,
+                        )
+                    )
+                }
+                sessionLauncher.launch(intent)
+            }
+        }
+    }
+
     if (!allowMultiple) {
         val launcher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.PickContact()
@@ -1266,6 +1301,92 @@ private fun MultiContactPickerDialog(
                 }
             }
         }
+    }
+}
+
+private fun resolveSessionContacts(context: Context, sessionUri: Uri): List<PickedContact> {
+    val cr = context.contentResolver
+    val projection = arrayOf(
+        ContactsContract.Contacts.LOOKUP_KEY,
+        ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
+        ContactsContract.Data.MIMETYPE,
+        ContactsContract.Data.DATA1,
+        ContactsContract.Data.DATA2,
+        ContactsContract.Data.DATA4,
+        ContactsContract.Data.DATA7,
+        ContactsContract.Data.DATA10,
+    )
+
+    class Acc(
+        val lookupKey: String?,
+        var name: String,
+    ) {
+        val phones = mutableListOf<String>()
+        var city: String? = null
+        var address: String? = null
+        var country: String? = null
+        var birthday: Birthday? = null
+    }
+
+    val byKey = linkedMapOf<String, Acc>()
+    try {
+        cr.query(sessionUri, projection, null, null, null)?.use { c ->
+            val keyIdx = c.getColumnIndex(ContactsContract.Contacts.LOOKUP_KEY)
+            val nameIdx = c.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
+            val mimeIdx = c.getColumnIndex(ContactsContract.Data.MIMETYPE)
+            val d1Idx = c.getColumnIndex(ContactsContract.Data.DATA1)
+            val d2Idx = c.getColumnIndex(ContactsContract.Data.DATA2)
+            val d4Idx = c.getColumnIndex(ContactsContract.Data.DATA4)
+            val d7Idx = c.getColumnIndex(ContactsContract.Data.DATA7)
+            val d10Idx = c.getColumnIndex(ContactsContract.Data.DATA10)
+
+            while (c.moveToNext()) {
+                val lookupKey = if (keyIdx >= 0) c.getString(keyIdx)?.takeIf { it.isNotBlank() } else null
+                val name = (if (nameIdx >= 0) c.getString(nameIdx) else null)?.trim()?.ifEmpty { null } ?: continue
+                val mapKey = lookupKey ?: name
+                val acc = byKey.getOrPut(mapKey) { Acc(lookupKey, name) }
+
+                val mime = if (mimeIdx >= 0) c.getString(mimeIdx) else null
+                when (mime) {
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE -> {
+                        val num = if (d1Idx >= 0) c.getString(d1Idx)?.trim()?.ifEmpty { null } else null
+                        if (num != null) acc.phones.add(num)
+                    }
+                    ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE -> {
+                        if (acc.address == null && d4Idx >= 0) {
+                            acc.address = c.getString(d4Idx)?.trim()?.ifEmpty { null }
+                        }
+                        if (acc.city == null && d7Idx >= 0) {
+                            acc.city = c.getString(d7Idx)?.trim()?.ifEmpty { null }
+                        }
+                        if (acc.country == null && d10Idx >= 0) {
+                            acc.country = c.getString(d10Idx)?.trim()?.ifEmpty { null }
+                        }
+                    }
+                    ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE -> {
+                        if (acc.birthday == null && d1Idx >= 0) {
+                            val eventType = if (d2Idx >= 0) c.getInt(d2Idx) else ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY
+                            if (eventType == ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY) {
+                                acc.birthday = parseContactBirthday(c.getString(d1Idx))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (_: Throwable) {
+    }
+
+    return byKey.values.map { acc ->
+        PickedContact(
+            name = acc.name,
+            contactId = acc.lookupKey ?: acc.name,
+            phoneNumbers = acc.phones.distinct(),
+            city = acc.city,
+            address = acc.address,
+            country = acc.country,
+            birthday = acc.birthday,
+        )
     }
 }
 
