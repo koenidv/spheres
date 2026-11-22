@@ -611,7 +611,7 @@ fun SettingsScreen(
                             if (phoneSupported) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "Adds check-ins for calls longer than 10 minutes, detected from call notifications.",
+                                    text = "Adds check-ins for longer calls. Make sure to link your contacts.",
                                     style = TextStyle(
                                         fontFamily = SansFontFamily(),
                                         fontSize = 13.sp,
