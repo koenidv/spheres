@@ -58,6 +58,7 @@ import de.koenidv.spheres.domain.frameBounds
 import de.koenidv.spheres.domain.hasCoordinates
 import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.domain.locationLabel
+import de.koenidv.spheres.platform.PlatformLocation
 import de.koenidv.spheres.ui.components.IconName
 import de.koenidv.spheres.ui.components.MapCamera
 import de.koenidv.spheres.ui.components.MapPin
@@ -71,10 +72,15 @@ import de.koenidv.spheres.ui.components.PixelTerrain
 import de.koenidv.spheres.ui.components.PxClipShape
 import de.koenidv.spheres.ui.components.ScreenHeader
 import de.koenidv.spheres.ui.components.SteppedPolygonShape
+import de.koenidv.spheres.ui.components.UserLocationBlue
+import de.koenidv.spheres.ui.components.UserLocationBoxSize
+import de.koenidv.spheres.ui.components.UserLocationMarker
+import de.koenidv.spheres.ui.theme.CardBg
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Muted
 import de.koenidv.spheres.ui.theme.PixelFontFamily
 import de.koenidv.spheres.ui.theme.SansFontFamily
+import kotlinx.coroutines.launch
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
@@ -102,6 +108,16 @@ fun MapScreen(
     var userMoved by remember { mutableStateOf(false) }
     var framed by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<MapCluster?>(null) }
+    var selectedUserLocation by remember { mutableStateOf(false) }
+    var centerOnNextLocation by remember { mutableStateOf(false) }
+    val locationSupported = remember { PlatformLocation.isSupported() }
+
+    // Location is only refreshed when the user opens the map tab (and has opted in).
+    LaunchedEffect(Unit) {
+        if (state.showUserLocation) {
+            SpheresStore.refreshUserLocation()
+        }
+    }
 
     // People who only have a typed city get their coordinates resolved in the background.
     LaunchedEffect(people.map { Triple(it.id, it.city, it.lat) }) {
@@ -115,7 +131,16 @@ fun MapScreen(
     fun fitAll(animate: Boolean) {
         if (camera.viewW <= 0f) return
         if (points.isEmpty()) {
-            camera.jumpTo(MapGeo.WORLD_W / 2f, MapGeo.WORLD_H / 2f, camera.minScale)
+            val loc = if (state.showUserLocation) state.userLocation else null
+            if (loc != null) {
+                val u = MapGeo.lngToU(loc.lng)
+                val v = MapGeo.latToV(loc.lat)
+                val s = max(camera.minScale, 10f * density)
+                if (animate) camera.animateTo(scope, u, v, s)
+                else camera.jumpTo(u, v, s)
+            } else {
+                camera.jumpTo(MapGeo.WORLD_W / 2f, MapGeo.WORLD_H / 2f, camera.minScale)
+            }
             return
         }
         val frame = frameBounds(
@@ -135,6 +160,19 @@ fun MapScreen(
         if (!viewReady || userMoved) return@LaunchedEffect
         fitAll(animate = framed)
         framed = true
+    }
+
+    LaunchedEffect(viewReady, state.userLocation, centerOnNextLocation) {
+        val loc = state.userLocation
+        if (viewReady && centerOnNextLocation && loc != null) {
+            centerOnNextLocation = false
+            camera.animateTo(
+                scope,
+                MapGeo.lngToU(loc.lng),
+                MapGeo.latToV(loc.lat),
+                max(camera.scale, 14f * density)
+            )
+        }
     }
 
     // Clusters are recomputed only when the zoom moves a notch, not on every pinch frame.
@@ -163,6 +201,7 @@ fun MapScreen(
             }
         }
         selected = if (selected?.key == c.key) null else c
+        selectedUserLocation = false
     }
 
     val subtitle = when {
@@ -215,7 +254,10 @@ fun MapScreen(
                         }
                         .pointerInput(Unit) {
                             detectTapGestures(
-                                onTap = { selected = null },
+                                onTap = {
+                                    selected = null
+                                    selectedUserLocation = false
+                                },
                                 onDoubleTap = { at ->
                                     userMoved = true
                                     camera.animateZoomAt(scope, at.x, at.y, 2.2f)
@@ -223,6 +265,29 @@ fun MapScreen(
                             )
                         }
                 )
+
+                val userLoc = if (state.showUserLocation) state.userLocation else null
+                if (userLoc != null) {
+                    val userU = MapGeo.lngToU(userLoc.lng)
+                    val userV = MapGeo.latToV(userLoc.lat)
+                    Box(
+                        modifier = Modifier.offset {
+                            IntOffset(
+                                (camera.xOf(userU) - UserLocationBoxSize.toPx() / 2f).roundToInt(),
+                                (camera.yOf(userV) - UserLocationBoxSize.toPx() / 2f).roundToInt()
+                            )
+                        }
+                    ) {
+                        UserLocationMarker(
+                            selected = selectedUserLocation,
+                            onClick = {
+                                userMoved = true
+                                selected = null
+                                selectedUserLocation = !selectedUserLocation
+                            }
+                        )
+                    }
+                }
 
                 for (c in clusters.sortedBy { it.v }) {
                     key(c.key) {
@@ -262,7 +327,46 @@ fun MapScreen(
                         MapControl(IconName.USERS) {
                             userMoved = true
                             selected = null
+                            selectedUserLocation = false
                             fitAll(animate = true)
+                        }
+                    }
+                    if (locationSupported) {
+                        MapControl(
+                            icon = IconName.LOCATE,
+                            active = state.showUserLocation
+                        ) {
+                            if (!state.showUserLocation || !PlatformLocation.isGranted()) {
+                                scope.launch {
+                                    val granted = PlatformLocation.requestPermission()
+                                    if (granted) {
+                                        userMoved = true
+                                        selected = null
+                                        selectedUserLocation = false
+                                        centerOnNextLocation = true
+                                        SpheresStore.setShowUserLocation(true, refreshImmediately = true)
+                                    } else {
+                                        SpheresStore.showToast("Location permission was not allowed")
+                                    }
+                                }
+                            } else {
+                                userMoved = true
+                                selected = null
+                                selectedUserLocation = false
+                                val loc = state.userLocation
+                                if (loc != null) {
+                                    camera.animateTo(
+                                        scope,
+                                        MapGeo.lngToU(loc.lng),
+                                        MapGeo.latToV(loc.lat),
+                                        max(camera.scale, 14f * density)
+                                    )
+                                    SpheresStore.refreshUserLocation()
+                                } else {
+                                    centerOnNextLocation = true
+                                    SpheresStore.refreshUserLocation()
+                                }
+                            }
                         }
                     }
                 }
@@ -273,7 +377,15 @@ fun MapScreen(
                     onOpen = { id -> onNavigate("/people/$id") }
                 )
 
-                if (located.isEmpty()) {
+                UserLocationOverlay(
+                    visible = selectedUserLocation && state.showUserLocation && state.userLocation != null,
+                    onHideLocation = {
+                        selectedUserLocation = false
+                        SpheresStore.setShowUserLocation(false)
+                    }
+                )
+
+                if (located.isEmpty() && !selectedUserLocation) {
                     EmptyMapCard(
                         hasPeople = people.isNotEmpty(),
                         modifier = Modifier
@@ -287,19 +399,23 @@ fun MapScreen(
 }
 
 @Composable
-private fun MapControl(icon: IconName, onClick: () -> Unit) {
+private fun MapControl(
+    icon: IconName,
+    active: Boolean = false,
+    onClick: () -> Unit
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     PixelShell(
         modifier = Modifier
             .size(width = 40.dp, height = 43.dp)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
-        fill = Color.White,
-        shadow = Color(0xFFB4BCE0),
+        fill = if (active) Color(0xFFEEF3FF) else Color.White,
+        shadow = if (active) Color(0xFFA6BEF8) else Color(0xFFB4BCE0),
         lift = 3.dp,
         isPressed = pressed
     ) {
-        PixelIcon(name = icon, size = 20.dp, tint = Ink)
+        PixelIcon(name = icon, size = 20.dp, tint = if (active) UserLocationBlue else Ink)
     }
 }
 
@@ -405,6 +521,76 @@ private fun SelectionOverlay(
                     onOpen = onOpen,
                     modifier = Modifier.padding(10.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserLocationOverlay(
+    visible: Boolean,
+    onHideLocation: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(spring(stiffness = 500f, dampingRatio = 0.9f)) { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut()
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(10.dp)
+                    .fillMaxWidth()
+                    .clip(SteppedPolygonShape(steps = 2))
+                    .background(Color.White)
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(PxClipShape)
+                        .background(UserLocationBlue.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    PixelIcon(name = IconName.LOCATE, size = 20.dp, tint = UserLocationBlue)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "You are here",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(fontFamily = PixelFontFamily(), fontSize = 18.sp, color = Ink)
+                    )
+                    Text(
+                        text = "Updated when you open the map",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(fontFamily = SansFontFamily(), fontSize = 14.sp, color = Muted)
+                    )
+                }
+                val hideInteraction = remember { MutableInteractionSource() }
+                val hidePressed by hideInteraction.collectIsPressedAsState()
+                PixelShell(
+                    modifier = Modifier
+                        .clickable(
+                            interactionSource = hideInteraction,
+                            indication = null,
+                            onClick = onHideLocation
+                        ),
+                    fill = CardBg,
+                    shadow = Color(0xFFD6D6D6),
+                    lift = 2.dp,
+                    isPressed = hidePressed
+                ) {
+                    Text(
+                        text = "Hide",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = TextStyle(fontFamily = PixelFontFamily(), fontSize = 14.sp, color = Ink)
+                    )
+                }
             }
         }
     }

@@ -2,8 +2,12 @@ package de.koenidv.spheres.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -58,6 +62,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 val MapWater = Color(0xFFE3E8F8)
+val UserLocationBlue = Color(0xFF4C7CF5)
+private val UserLocationHighlight = Color(0xFF9EC0FF)
 private val MapShallow = Color(0xFFEBEFFB)
 private val MapLand = Color(0xFFFFFFFF)
 private val MapLandTexture = Color(0xFFF4F4F9)
@@ -72,6 +78,7 @@ private const val BORDER_FADE_RANGE_CELLS = 24f
 /** Pin box the markers live in. The pin's tip sits at the bottom centre. */
 val MapPinBoxWidth = 96.dp
 val MapPinBoxHeight = 72.dp
+val UserLocationBoxSize = 44.dp
 
 /**
  * View onto the world: [cx]/[cy] is the world cell in the centre of the view and [scale] the
@@ -415,6 +422,94 @@ fun MapPin(
                 drawRect(ring, Offset(0f, 0f), Size(size.width, step))
                 drawRect(ring, Offset(size.width * 2f / 12f * 1f, step), Size(size.width * 8f / 12f, step))
                 drawRect(ring, Offset(size.width * 4f / 12f, step * 2f), Size(size.width * 4f / 12f, step))
+            }
+        }
+    }
+}
+
+/**
+ * Pixel-art marker for the user's own current location, centered in a [UserLocationBoxSize] square.
+ */
+@Composable
+fun UserLocationMarker(
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        appear.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow))
+    }
+
+    val pulse = rememberInfiniteTransition(label = "userLocationPulse")
+    val pulseProgress by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseProgress"
+    )
+    val lift by animateDpAsState(if (selected) 3.dp else 0.dp, spring(stiffness = 600f))
+
+    Box(
+        modifier = modifier
+            .size(UserLocationBoxSize)
+            .graphicsLayer {
+                scaleX = appear.value
+                scaleY = appear.value
+                alpha = appear.value.coerceIn(0f, 1f)
+            }
+            .then(
+                if (onClick != null) Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick
+                ) else Modifier
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        val pulseSize = 18.dp + (22.dp * pulseProgress)
+        Box(
+            modifier = Modifier
+                .size(pulseSize)
+                .clip(PxClipShape)
+                .background(UserLocationBlue.copy(alpha = (1f - pulseProgress) * 0.38f))
+        )
+
+        Box(
+            modifier = Modifier.offset(y = -lift),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset(y = 2.dp)
+                    .size(22.dp)
+                    .clip(PxClipShape)
+                    .background(Ink.copy(alpha = 0.16f))
+            )
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(PxClipShape)
+                    .background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clip(PxClipShape)
+                        .background(UserLocationBlue),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .offset(x = (-3).dp, y = (-3).dp)
+                            .size(4.dp)
+                            .background(UserLocationHighlight)
+                    )
+                }
             }
         }
     }

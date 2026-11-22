@@ -97,6 +97,21 @@ expect fun cropSquareAvatarJpeg(
     heightFrac: Float,
 ): ByteArray?
 
+@Serializable
+data class UserLocation(
+    val lat: Double,
+    val lng: Double,
+    val accuracyMeters: Float? = null,
+    val updatedAt: Long = 0L,
+)
+
+expect object PlatformLocation {
+    fun isSupported(): Boolean
+    fun isGranted(): Boolean
+    suspend fun requestPermission(): Boolean
+    suspend fun getCurrentLocation(): UserLocation?
+}
+
 expect object PlatformNotifications {
     fun isSupported(): Boolean
     fun isGranted(): Boolean

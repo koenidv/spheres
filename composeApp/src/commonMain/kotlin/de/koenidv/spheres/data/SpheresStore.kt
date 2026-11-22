@@ -36,12 +36,14 @@ import de.koenidv.spheres.platform.NotificationActionBridge
 import de.koenidv.spheres.platform.NotificationActionType
 import de.koenidv.spheres.platform.PlatformAnalytics
 import de.koenidv.spheres.platform.PlatformBilling
+import de.koenidv.spheres.platform.PlatformLocation
 import de.koenidv.spheres.platform.PlatformNotifications
 import de.koenidv.spheres.platform.PlatformPhoneIntegration
 import de.koenidv.spheres.platform.PlatformStorage
 import de.koenidv.spheres.platform.PurchaseOutcome
 import de.koenidv.spheres.platform.RestoreOutcome
 import de.koenidv.spheres.platform.UnlinkedCallPrompt
+import de.koenidv.spheres.platform.UserLocation
 import de.koenidv.spheres.platform.currentTimeMillis
 import de.koenidv.spheres.platform.haptic
 import de.koenidv.spheres.platform.randomUuid
@@ -127,6 +129,9 @@ data class AppState(
     val pendingTransfer: PendingTransfer? = null,
     val phoneIntegrationEnabled: Boolean = false,
     val unlinkedCallPrompts: List<UnlinkedCallPrompt> = emptyList(),
+    val showUserLocation: Boolean = false,
+    val userLocation: UserLocation? = null,
+    val isLocatingUser: Boolean = false,
     val sheet: SheetState? = null,
     val toast: ToastData? = null,
 )
@@ -145,10 +150,13 @@ object SpheresStore {
 
     private var toastJob: Job? = null
     private var toastCounter = 0L
+    private var locationJob: Job? = null
 
     init {
         val phonePref = PlatformStorage.getString("phone_integration_enabled") == "true"
         val phoneActive = phonePref && PlatformPhoneIntegration.isSupported() && PlatformPhoneIntegration.isGranted()
+        val locPref = PlatformStorage.getString("show_user_location") == "true"
+        val locActive = locPref && PlatformLocation.isSupported() && PlatformLocation.isGranted()
         val savedPromptsRaw = PlatformStorage.getString("phone_integration_pending_prompts")
         val savedPrompts = if (!savedPromptsRaw.isNullOrBlank()) {
             try {
@@ -157,10 +165,11 @@ object SpheresStore {
                 emptyList()
             }
         } else emptyList()
-        if (phoneActive || savedPrompts.isNotEmpty()) {
+        if (phoneActive || locActive || savedPrompts.isNotEmpty()) {
             _state.update {
                 it.copy(
                     phoneIntegrationEnabled = phoneActive,
+                    showUserLocation = locActive,
                     unlinkedCallPrompts = savedPrompts
                 )
             }
@@ -1273,6 +1282,48 @@ object SpheresStore {
             entries = s.entries,
         )
         return Json { prettyPrint = true }.encodeToString(payload)
+    }
+
+    fun setShowUserLocation(
+        enabled: Boolean,
+        silent: Boolean = false,
+        refreshImmediately: Boolean = false
+    ) {
+        val active = enabled && PlatformLocation.isSupported() && PlatformLocation.isGranted()
+        PlatformStorage.putString("show_user_location", if (active) "true" else "false")
+        if (!active) {
+            locationJob?.cancel()
+            locationJob = null
+            _state.update { it.copy(showUserLocation = false, userLocation = null, isLocatingUser = false) }
+            if (!enabled && !silent) showToast("Location hidden from map")
+            return
+        }
+        _state.update { it.copy(showUserLocation = true) }
+        if (!silent) showToast("Location enabled on map")
+        if (refreshImmediately) refreshUserLocation()
+    }
+
+    fun refreshUserLocation() {
+        val current = state.value
+        if (!current.showUserLocation) return
+        if (!PlatformLocation.isSupported() || !PlatformLocation.isGranted()) {
+            PlatformStorage.putString("show_user_location", "false")
+            _state.update { it.copy(showUserLocation = false, userLocation = null, isLocatingUser = false) }
+            return
+        }
+        locationJob?.cancel()
+        locationJob = scope.launch {
+            _state.update { it.copy(isLocatingUser = true) }
+            val loc = try {
+                PlatformLocation.getCurrentLocation()
+            } catch (_: Throwable) {
+                null
+            }
+            _state.update { s ->
+                if (!s.showUserLocation) s.copy(userLocation = null, isLocatingUser = false)
+                else s.copy(userLocation = loc ?: s.userLocation, isLocatingUser = false)
+            }
+        }
     }
 
     fun setPhoneIntegrationEnabled(enabled: Boolean) {

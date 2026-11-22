@@ -79,6 +79,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        AndroidPlatformContext.onRequestPermissionsResult(requestCode)
+    }
+
     private fun handleAuthIntent(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme?.startsWith("com.googleusercontent.apps.") == true) {

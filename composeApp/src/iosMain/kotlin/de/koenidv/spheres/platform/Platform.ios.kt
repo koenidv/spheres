@@ -20,7 +20,9 @@ import kotlinx.cinterop.convert
 import kotlinx.cinterop.useContents
 import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.skia.Image
 import platform.AuthenticationServices.ASAuthorization
@@ -45,6 +47,16 @@ import platform.CoreCrypto.CC_SHA256
 import platform.CoreCrypto.CC_SHA256_DIGEST_LENGTH
 import platform.CoreGraphics.CGRectMake
 import platform.CoreGraphics.CGSizeMake
+import platform.CoreLocation.CLAuthorizationStatus
+import platform.CoreLocation.CLLocation
+import platform.CoreLocation.CLLocationManager
+import platform.CoreLocation.CLLocationManagerDelegateProtocol
+import platform.CoreLocation.kCLAuthorizationStatusAuthorizedAlways
+import platform.CoreLocation.kCLAuthorizationStatusAuthorizedWhenInUse
+import platform.CoreLocation.kCLAuthorizationStatusDenied
+import platform.CoreLocation.kCLAuthorizationStatusNotDetermined
+import platform.CoreLocation.kCLAuthorizationStatusRestricted
+import platform.CoreLocation.kCLLocationAccuracyHundredMeters
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.NSDocumentDirectory
@@ -231,6 +243,110 @@ private fun ByteArray.toNSData(): NSData? {
     if (isEmpty()) return NSData()
     return usePinned { pinned ->
         NSData.create(bytes = pinned.addressOf(0), length = size.toULong())
+    }
+}
+
+actual object PlatformLocation {
+    actual fun isSupported(): Boolean = CLLocationManager.locationServicesEnabled()
+
+    actual fun isGranted(): Boolean {
+        val status = CLLocationManager.authorizationStatus()
+        return status == kCLAuthorizationStatusAuthorizedWhenInUse ||
+            status == kCLAuthorizationStatusAuthorizedAlways
+    }
+
+    actual suspend fun requestPermission(): Boolean {
+        if (isGranted()) return true
+        val initial = CLLocationManager.authorizationStatus()
+        if (initial == kCLAuthorizationStatusDenied || initial == kCLAuthorizationStatusRestricted) {
+            return false
+        }
+        return withContext(Dispatchers.Main) {
+            withTimeoutOrNull(60_000L) {
+                suspendCancellableCoroutine { cont ->
+                    val manager = CLLocationManager()
+                    var activeDelegate: NSObject? = null
+                    val delegate = object : NSObject(), CLLocationManagerDelegateProtocol {
+                        override fun locationManager(
+                            manager: CLLocationManager,
+                            didChangeAuthorizationStatus: CLAuthorizationStatus
+                        ) {
+                            if (didChangeAuthorizationStatus == kCLAuthorizationStatusNotDetermined) return
+                            activeDelegate = null
+                            manager.delegate = null
+                            val granted = didChangeAuthorizationStatus == kCLAuthorizationStatusAuthorizedWhenInUse ||
+                                didChangeAuthorizationStatus == kCLAuthorizationStatusAuthorizedAlways
+                            if (cont.isActive) cont.resume(granted)
+                        }
+
+                        override fun locationManagerDidChangeAuthorization(manager: CLLocationManager) {
+                            val status = manager.authorizationStatus
+                            if (status == kCLAuthorizationStatusNotDetermined) return
+                            activeDelegate = null
+                            manager.delegate = null
+                            val granted = status == kCLAuthorizationStatusAuthorizedWhenInUse ||
+                                status == kCLAuthorizationStatusAuthorizedAlways
+                            if (cont.isActive) cont.resume(granted)
+                        }
+                    }
+                    activeDelegate = delegate
+                    manager.delegate = delegate
+                    cont.invokeOnCancellation {
+                        activeDelegate = null
+                        manager.delegate = null
+                    }
+                    manager.requestWhenInUseAuthorization()
+                }
+            } ?: isGranted()
+        }
+    }
+
+    @OptIn(ExperimentalForeignApi::class)
+    actual suspend fun getCurrentLocation(): UserLocation? {
+        if (!isGranted()) return null
+        return withContext(Dispatchers.Main) {
+            withTimeoutOrNull(6_000L) {
+                suspendCancellableCoroutine { cont ->
+                    val manager = CLLocationManager()
+                    manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+                    var activeDelegate: NSObject? = null
+                    val delegate = object : NSObject(), CLLocationManagerDelegateProtocol {
+                        override fun locationManager(manager: CLLocationManager, didUpdateLocations: List<*>) {
+                            activeDelegate = null
+                            manager.delegate = null
+                            val loc = didUpdateLocations.lastOrNull() as? CLLocation
+                            if (cont.isActive) cont.resume(loc?.toUserLocation())
+                        }
+
+                        override fun locationManager(manager: CLLocationManager, didFailWithError: NSError) {
+                            activeDelegate = null
+                            manager.delegate = null
+                            if (cont.isActive) cont.resume(manager.location?.toUserLocation())
+                        }
+                    }
+                    activeDelegate = delegate
+                    manager.delegate = delegate
+                    cont.invokeOnCancellation {
+                        activeDelegate = null
+                        manager.delegate = null
+                        manager.stopUpdatingLocation()
+                    }
+                    manager.requestLocation()
+                }
+            } ?: CLLocationManager().location?.toUserLocation()
+        }
+    }
+
+    @OptIn(ExperimentalForeignApi::class)
+    private fun CLLocation.toUserLocation(): UserLocation {
+        val (lat, lng) = coordinate.useContents { latitude to longitude }
+        val acc = horizontalAccuracy.toFloat().takeIf { it >= 0f }
+        return UserLocation(
+            lat = lat,
+            lng = lng,
+            accuracyMeters = acc,
+            updatedAt = currentTimeMillis()
+        )
     }
 }
 

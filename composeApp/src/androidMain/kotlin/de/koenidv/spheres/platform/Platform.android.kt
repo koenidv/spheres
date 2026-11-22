@@ -17,8 +17,14 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -129,11 +135,21 @@ object AndroidPlatformContext {
     private var currentActivityRef: WeakReference<Activity>? = null
     var pendingAuthContinuation: CancellableContinuation<String>? = null
     var pendingSettingsReturn: CompletableDeferred<Unit>? = null
+    var pendingLocationPermission: CompletableDeferred<Boolean>? = null
+
+    const val LOCATION_PERMISSION_REQUEST_CODE = 1003
 
     /** Call from the activity's onResume; releases a flow waiting for the user to return from system settings. */
     fun onActivityResumed() {
         pendingSettingsReturn?.complete(Unit)
         pendingSettingsReturn = null
+    }
+
+    fun onRequestPermissionsResult(requestCode: Int) {
+        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
+            pendingLocationPermission?.complete(PlatformLocation.isGranted())
+            pendingLocationPermission = null
+        }
     }
 
     var applicationContext: Context
@@ -256,6 +272,154 @@ actual fun decodeImageBitmap(bytes: ByteArray): ImageBitmap? = try {
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
 } catch (_: Throwable) {
     null
+}
+
+actual object PlatformLocation {
+    actual fun isSupported(): Boolean {
+        val context = AndroidPlatformContext.applicationContext
+        return context.packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION) ||
+            context.getSystemService(Context.LOCATION_SERVICE) != null
+    }
+
+    actual fun isGranted(): Boolean {
+        val context = AndroidPlatformContext.applicationContext
+        return context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    }
+
+    actual suspend fun requestPermission(): Boolean {
+        if (isGranted()) return true
+        val activity = AndroidPlatformContext.currentActivity ?: return false
+        val deferred = CompletableDeferred<Boolean>()
+        AndroidPlatformContext.pendingLocationPermission?.cancel()
+        AndroidPlatformContext.pendingLocationPermission = deferred
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ),
+            AndroidPlatformContext.LOCATION_PERMISSION_REQUEST_CODE
+        )
+        return withTimeoutOrNull(60_000L) { deferred.await() } ?: isGranted()
+    }
+
+    @Suppress("MissingPermission")
+    actual suspend fun getCurrentLocation(): UserLocation? {
+        if (!isGranted()) return null
+        val context = AndroidPlatformContext.applicationContext
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+
+        val lastKnown = bestLastKnownLocation(manager)
+        val now = currentTimeMillis()
+        if (lastKnown != null && now - lastKnown.time < 2 * 60_000L) {
+            return lastKnown.toUserLocation()
+        }
+
+        val provider = pickLocationProvider(manager)
+        val fresh = if (provider != null) {
+            withTimeoutOrNull(6_000L) {
+                requestSingleLocation(context, manager, provider)
+            }
+        } else null
+
+        return (fresh ?: lastKnown)?.toUserLocation()
+    }
+
+    private fun pickLocationProvider(manager: LocationManager): String? {
+        val candidates = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(LocationManager.FUSED_PROVIDER)
+            }
+            add(LocationManager.NETWORK_PROVIDER)
+            add(LocationManager.GPS_PROVIDER)
+            add(LocationManager.PASSIVE_PROVIDER)
+        }
+        return candidates.firstOrNull { provider ->
+            try {
+                manager.isProviderEnabled(provider)
+            } catch (_: Throwable) {
+                false
+            }
+        }
+    }
+
+    @Suppress("MissingPermission")
+    private fun bestLastKnownLocation(manager: LocationManager): Location? {
+        val providers = try {
+            manager.getProviders(true)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        var best: Location? = null
+        for (provider in providers) {
+            val loc = try {
+                manager.getLastKnownLocation(provider)
+            } catch (_: Throwable) {
+                null
+            } ?: continue
+            if (best == null || loc.time > best.time) {
+                best = loc
+            }
+        }
+        return best
+    }
+
+    @Suppress("MissingPermission", "DEPRECATION")
+    private suspend fun requestSingleLocation(
+        context: Context,
+        manager: LocationManager,
+        provider: String
+    ): Location? = suspendCancellableCoroutine { cont ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val signal = CancellationSignal()
+            cont.invokeOnCancellation { signal.cancel() }
+            try {
+                manager.getCurrentLocation(
+                    provider,
+                    signal,
+                    context.mainExecutor
+                ) { location ->
+                    if (cont.isActive) cont.resume(location)
+                }
+            } catch (_: Throwable) {
+                if (cont.isActive) cont.resume(null)
+            }
+        } else {
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    try {
+                        manager.removeUpdates(this)
+                    } catch (_: Throwable) {
+                    }
+                    if (cont.isActive) cont.resume(location)
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+            }
+            cont.invokeOnCancellation {
+                try {
+                    manager.removeUpdates(listener)
+                } catch (_: Throwable) {
+                }
+            }
+            try {
+                manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+            } catch (_: Throwable) {
+                if (cont.isActive) cont.resume(null)
+            }
+        }
+    }
+
+    private fun Location.toUserLocation(): UserLocation = UserLocation(
+        lat = latitude,
+        lng = longitude,
+        accuracyMeters = if (hasAccuracy()) accuracy else null,
+        updatedAt = if (time > 0L) time else currentTimeMillis()
+    )
 }
 
 actual object PlatformNotifications {
