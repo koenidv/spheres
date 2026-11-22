@@ -184,7 +184,7 @@ data class UnlinkedCallPrompt(
 
 object PostHogConstants {
     const val API_KEY: String = "phc_vQHABLdS6yd3pMEtFDJi9sbSKdBr9B4aYqdLvUVNRjFu"
-    const val HOST: String = "https://us.i.posthog.com"
+    const val HOST: String = "https://eu.i.posthog.com"
 }
 
 object PlatformAnalytics {
