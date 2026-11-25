@@ -4,7 +4,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.Dp
+import de.koenidv.spheres.ui.components.LocalSelectedRoute
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -13,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -38,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import de.koenidv.spheres.ui.components.LocalBottomChromeInset
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.FREE_CONNECTIONS_LIMIT
@@ -90,18 +96,20 @@ fun SpheresScreen(
     val accentColorHex = "#9d7ce7"
     val accentColor = parseHexColor(accentColorHex)
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
     ) {
+        val narrow = maxWidth < 420.dp
+        val gridWidth = maxWidth - 32.dp
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(bottom = 96.dp)
+                .padding(bottom = LocalBottomChromeInset.current)
         ) {
             ScreenHeader(
                 title = "Spheres",
@@ -121,7 +129,36 @@ fun SpheresScreen(
                         onNavigate("/events/$newEventId")
                     }
                 ) {
-                    Box(
+                    if (narrow) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            PixelIcon(name = IconName.PARTY, size = 24.dp, tint = Ink)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Start event",
+                                    style = TextStyle(
+                                        fontFamily = PixelFontFamily(),
+                                        fontSize = 20.sp,
+                                        lineHeight = 26.sp,
+                                        color = Ink
+                                    )
+                                )
+                                Text(
+                                    text = "Jot down names as you meet people.",
+                                    style = TextStyle(
+                                        fontFamily = SansFontFamily(),
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        color = Ink.copy(alpha = 0.7f)
+                                    )
+                                )
+                            }
+                            PixelIcon(name = IconName.CHEVRON_RIGHT, size = 20.dp, tint = Ink)
+                        }
+                    } else Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(132.dp)
@@ -247,10 +284,13 @@ fun SpheresScreen(
                             fontSize = 14.sp,
                             letterSpacing = 0.05.sp,
                             color = Muted
-                        )
+                        ),
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     PixelButton(
-                        text = "New sphere",
+                        text = if (narrow) "New" else "New sphere",
                         icon = if (spheresAtLimit) IconName.SPARKLE else IconName.PLUS,
                         variant = ButtonVariant.SECONDARY,
                         size = ButtonSize.SM,
@@ -273,17 +313,16 @@ fun SpheresScreen(
                         )
                     }
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        for (sphere in sortedSpheres) {
-                            val members = remember(people, events, sphere.id) {
-                                people.filter { inSphere(it, sphere.id, events) }
-                            }
-                            SphereCard(
-                                sphere = sphere,
-                                members = members,
-                                onClick = { onNavigate("/spheres/${sphere.id}") }
-                            )
+                    CardGrid(items = sortedSpheres, width = gridWidth) { sphere ->
+                        val members = remember(people, events, sphere.id) {
+                            people.filter { inSphere(it, sphere.id, events) }
                         }
+                        SphereCard(
+                            sphere = sphere,
+                            members = members,
+                            selected = LocalSelectedRoute.current == "/spheres/${sphere.id}",
+                            onClick = { onNavigate("/spheres/${sphere.id}") }
+                        )
                     }
                 }
 
@@ -339,18 +378,17 @@ fun SpheresScreen(
                         )
                     }
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        for (event in events) {
-                            val metCount = remember(people, event.id) {
-                                people.count { it.eventIds.contains(event.id) }
-                            }
-                            EventCard(
-                                event = event,
-                                metCount = metCount,
-                                spheres = spheres,
-                                onClick = { onNavigate("/events/${event.id}") }
-                            )
+                    CardGrid(items = events, width = gridWidth) { event ->
+                        val metCount = remember(people, event.id) {
+                            people.count { it.eventIds.contains(event.id) }
                         }
+                        EventCard(
+                            event = event,
+                            metCount = metCount,
+                            spheres = spheres,
+                            selected = LocalSelectedRoute.current == "/events/${event.id}",
+                            onClick = { onNavigate("/events/${event.id}") }
+                        )
                     }
                 }
             }
@@ -358,25 +396,47 @@ fun SpheresScreen(
     }
 }
 
+private val MinCardWidth = 260.dp
+private val CardGap = 10.dp
+
+// Columns follow the width so cards never get cramped; narrow lists stay a single column
 @Composable
-private fun AvatarStack(people: List<Person>) {
-    val shown = people.take(4)
+private fun <T> CardGrid(items: List<T>, width: Dp, card: @Composable (T) -> Unit) {
+    val columns = ((width + CardGap) / (MinCardWidth + CardGap)).toInt().coerceIn(1, 3)
+    Column(verticalArrangement = Arrangement.spacedBy(CardGap)) {
+        for (row in items.chunked(columns)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(CardGap)) {
+                for (item in row) {
+                    Box(modifier = Modifier.weight(1f)) { card(item) }
+                }
+                repeat(columns - row.size) { Spacer(modifier = Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvatarStack(people: List<Person>, max: Int = 4) {
+    val shown = people.take(max)
+    if (shown.isEmpty()) return
     Row(verticalAlignment = Alignment.CenterVertically) {
-        shown.forEachIndexed { i, p ->
-            val info = intervalInfo(p.intervalDays)
-            Box(
-                modifier = Modifier
-                    .offset(x = if (i == 0) 0.dp else (-10 * i).dp)
-                    .zIndex((shown.size - i).toFloat())
-                    .clip(PxClipShape)
-                    .background(Color.White)
-                    .padding(2.dp)
-            ) {
-                PersonAvatar(
-                    person = p,
-                    colorHex = info.color,
-                    size = 28.dp
-                )
+        Box(modifier = Modifier.width(32.dp + 18.dp * (shown.size - 1)).height(32.dp)) {
+            shown.forEachIndexed { i, p ->
+                val info = intervalInfo(p.intervalDays)
+                Box(
+                    modifier = Modifier
+                        .offset(x = 18.dp * i)
+                        .zIndex((shown.size - i).toFloat())
+                        .clip(PxClipShape)
+                        .background(Color.White)
+                        .padding(2.dp)
+                ) {
+                    PersonAvatar(
+                        person = p,
+                        colorHex = info.color,
+                        size = 28.dp
+                    )
+                }
             }
         }
         if (people.size > shown.size) {
@@ -387,11 +447,37 @@ private fun AvatarStack(people: List<Person>) {
                     fontSize = 14.sp,
                     color = Ink.copy(alpha = 0.6f)
                 ),
-                modifier = Modifier.offset(x = (-10 * (shown.size - 1) + 4).dp)
+                modifier = Modifier.padding(start = 4.dp)
             )
         }
     }
 }
+
+@Composable
+private fun CountPill(count: Int) {
+    Row(
+        modifier = Modifier
+            .height(24.dp)
+            .clip(PxClipShape)
+            .background(Color.White)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        PixelIcon(name = IconName.USERS, size = 14.dp, tint = Ink.copy(alpha = 0.6f))
+        Text(
+            text = count.toString(),
+            style = TextStyle(
+                fontFamily = PixelFontFamily(),
+                fontSize = 14.sp,
+                color = Ink
+            )
+        )
+    }
+}
+
+private fun Modifier.selectedOutline(selected: Boolean): Modifier =
+    if (selected) border(2.dp, Ink, PxClipShape) else this
 
 private data class ArcSpec(val cx: Float, val cy: Float, val r: Float, val alpha: Float)
 
@@ -471,68 +557,62 @@ private fun ArcArt(
 private fun SphereCard(
     sphere: Sphere,
     members: List<Person>,
+    selected: Boolean,
     onClick: () -> Unit
 ) {
     val sphereColor = parseHexColor(sphere.color)
     PixelPanel(
+        modifier = Modifier.selectedOutline(selected),
         color = sphereColor,
         raised = true,
         onClick = onClick
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(PxClipShape)
-                    .background(Color.White),
-                contentAlignment = Alignment.Center
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val cw = maxWidth
+            val roomy = cw >= 230.dp
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                PixelIcon(name = IconName.USERS, size = 26.dp, tint = sphereColor)
-            }
+                Box(
+                    modifier = Modifier
+                        .size(if (roomy) 44.dp else 36.dp)
+                        .clip(PxClipShape)
+                        .background(Color.White),
+                    contentAlignment = Alignment.Center
+                ) {
+                    PixelIcon(name = IconName.USERS, size = if (roomy) 26.dp else 22.dp, tint = sphereColor)
+                }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = sphere.name,
-                    style = TextStyle(
-                        fontFamily = PixelFontFamily(),
-                        fontSize = 18.sp,
-                        lineHeight = 24.sp,
-                        color = Ink
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${members.size} ${if (members.size == 1) "connection" else "connections"}",
-                    style = TextStyle(
-                        fontFamily = SansFontFamily(),
-                        fontSize = 13.sp,
-                        lineHeight = 20.sp,
-                        color = Ink.copy(alpha = 0.6f)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = sphere.name,
+                        style = TextStyle(
+                            fontFamily = PixelFontFamily(),
+                            fontSize = 18.sp,
+                            lineHeight = 22.sp,
+                            color = Ink
+                        ),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
-                )
-            }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CountPill(members.size)
+                        if (roomy) AvatarStack(members, max = if (cw >= 340.dp) 4 else 3)
+                    }
+                }
 
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = members.size.toString(),
-                    style = TextStyle(
-                        fontFamily = PixelFontFamily(),
-                        fontSize = 20.sp,
-                        color = Ink
-                    )
-                )
-                AvatarStack(members)
+                if (roomy) {
+                    PixelIcon(name = IconName.CHEVRON_RIGHT, size = 20.dp, tint = Ink.copy(alpha = 0.4f))
+                }
             }
-
-            PixelIcon(name = IconName.CHEVRON_RIGHT, size = 20.dp, tint = Ink.copy(alpha = 0.4f))
         }
     }
 }
@@ -543,6 +623,7 @@ private fun EventCard(
     event: SocialEvent,
     metCount: Int,
     spheres: List<Sphere>,
+    selected: Boolean,
     onClick: () -> Unit
 ) {
     val eventColor = parseHexColor(event.color)
@@ -551,6 +632,7 @@ private fun EventCard(
     }
 
     PixelPanel(
+        modifier = Modifier.selectedOutline(selected),
         color = eventColor,
         raised = true,
         onClick = onClick
@@ -576,10 +658,10 @@ private fun EventCard(
                     style = TextStyle(
                         fontFamily = PixelFontFamily(),
                         fontSize = 18.sp,
-                        lineHeight = 24.sp,
+                        lineHeight = 22.sp,
                         color = Ink
                     ),
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(

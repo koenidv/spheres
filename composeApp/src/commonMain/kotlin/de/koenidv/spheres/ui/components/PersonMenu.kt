@@ -34,13 +34,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.collectAsState
+import de.koenidv.spheres.data.LogMode
+import de.koenidv.spheres.data.SheetState
+import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.AvatarConfig
+import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.platform.PlatformBackHandler
 import de.koenidv.spheres.ui.theme.Ink
 import de.koenidv.spheres.ui.theme.Muted
@@ -109,8 +117,11 @@ fun PersonMenu(
                 if (state == EnterExitState.Visible) 1.04f else 1.0f
             }
 
+            var origin by remember { mutableStateOf(Offset.Zero) }
             BoxWithConstraints(
-                modifier = modifier.fillMaxSize()
+                modifier = modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { origin = it.positionInWindow() }
             ) {
                 Box(
                     modifier = Modifier
@@ -130,8 +141,8 @@ fun PersonMenu(
                 val density = androidx.compose.ui.platform.LocalDensity.current.density
                 val screenW = maxWidth.value
                 val screenH = maxHeight.value
-                val anchorXDp = currentTarget.anchorX / density
-                val anchorYDp = currentTarget.anchorY / density
+                val anchorXDp = (currentTarget.anchorX - origin.x) / density
+                val anchorYDp = (currentTarget.anchorY - origin.y) / density
                 val anchorWDp = currentTarget.anchorWidth / density
                 val anchorHDp = currentTarget.anchorHeight / density
 
@@ -269,6 +280,7 @@ private fun MenuItem(
         modifier = Modifier
             .fillMaxWidth()
             .height(44.dp)
+            .hoverHighlight()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -287,4 +299,27 @@ private fun MenuItem(
             modifier = Modifier.padding(start = 12.dp)
         )
     }
+}
+
+@Composable
+fun PersonMenuHost(
+    target: PersonMenuTarget?,
+    onClose: () -> Unit,
+    onNavigate: (String) -> Unit
+) {
+    val state by SpheresStore.state.collectAsState()
+    val person = remember(target, state.people) { state.people.firstOrNull { it.id == target?.id } }
+    PersonMenu(
+        target = target,
+        personName = person?.name ?: "",
+        colorHex = intervalInfo(person?.intervalDays).color,
+        avatar = person?.avatar,
+        photoUrl = person?.photoUrl,
+        onClose = onClose,
+        onCheckIn = { SpheresStore.quickCheckIn(it) },
+        onLogInteraction = { SpheresStore.openSheet(SheetState.Log(it, LogMode.INTERACTION)) },
+        onAddNote = { SpheresStore.openSheet(SheetState.Log(it, LogMode.NOTE)) },
+        onSnooze = { id, days -> SpheresStore.snooze(id, days) },
+        onOpen = { onNavigate("/people/$it") }
+    )
 }

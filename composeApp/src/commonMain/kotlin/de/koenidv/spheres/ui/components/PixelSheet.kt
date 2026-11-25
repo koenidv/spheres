@@ -10,8 +10,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -30,11 +32,13 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -58,6 +62,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.sp
 import de.koenidv.spheres.platform.PlatformBackHandler
 import de.koenidv.spheres.ui.theme.Ink
@@ -83,6 +89,22 @@ fun PixelSheet(
     var currentDragOffset by remember { mutableFloatStateOf(0f) }
     var sheetHeightPx by remember { mutableFloatStateOf(0f) }
     val scrollState = rememberScrollState()
+
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    // Drop focus as soon as the sheet starts closing so the IME doesn't outlive it
+    LaunchedEffect(open) {
+        if (!open) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+        }
+    }
 
     LaunchedEffect(open) {
         if (open) {
@@ -150,6 +172,19 @@ fun PixelSheet(
     }
 
     val velocityTracker = remember { VelocityTracker() }
+
+    if (!LocalWindowClass.current.isCompact) {
+        PixelDialog(
+            open = open,
+            onClose = onClose,
+            modifier = modifier,
+            title = title,
+            scrollable = scrollable,
+            scrollState = scrollState,
+            content = content
+        )
+        return
+    }
 
     AnimatedVisibility(
         visible = open,
@@ -277,6 +312,101 @@ fun PixelSheet(
                             .fillMaxWidth()
                             .weight(1f, fill = false)
                             .nestedScroll(nestedScrollConnection)
+                            .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier)
+                            .padding(horizontal = 24.dp)
+                            .padding(bottom = 20.dp),
+                        content = content
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PixelDialog(
+    open: Boolean,
+    onClose: () -> Unit,
+    modifier: Modifier,
+    title: String?,
+    scrollable: Boolean,
+    scrollState: ScrollState,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    AnimatedVisibility(
+        visible = open,
+        enter = EnterTransition.None,
+        exit = ExitTransition.None
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .animateEnterExit(
+                        enter = fadeIn(tween(220, easing = FastOutSlowInEasing)),
+                        exit = fadeOut(tween(180, easing = FastOutLinearInEasing))
+                    )
+                    .background(Scrim.copy(alpha = 0.7f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClose
+                    )
+            )
+
+            // Insets shrink the area the dialog centers in, so the IME never covers its inputs
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = modifier
+                        .widthIn(max = 560.dp)
+                        .fillMaxWidth()
+                        .heightIn(max = maxHeight * 0.85f)
+                        .animateEnterExit(
+                            enter = fadeIn(tween(160)) + scaleIn(
+                                initialScale = 0.94f,
+                                animationSpec = spring(stiffness = 520f, dampingRatio = 0.9f)
+                            ),
+                            exit = fadeOut(tween(120))
+                        )
+                        .clip(SteppedPolygonShape(steps = 3))
+                        .background(Color.White)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 24.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = title.orEmpty(),
+                            style = TextStyle(
+                                fontFamily = PixelFontFamily(),
+                                fontSize = 20.sp,
+                                lineHeight = 24.sp,
+                                color = Ink
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                        PixelIconButton(icon = IconName.CLOSE, onClick = onClose)
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
                             .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier)
                             .padding(horizontal = 24.dp)
                             .padding(bottom = 20.dp),

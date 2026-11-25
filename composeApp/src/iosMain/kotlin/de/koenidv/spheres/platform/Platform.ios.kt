@@ -144,6 +144,8 @@ import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 import platform.posix.memcpy
 
+actual val isWebPlatform: Boolean = false
+
 actual fun haptic(durationMs: Int) {
     val style = when {
         durationMs > 20 -> UIImpactFeedbackStyle.UIImpactFeedbackStyleHeavy

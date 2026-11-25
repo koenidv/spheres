@@ -8,7 +8,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +50,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
@@ -522,13 +527,15 @@ fun PixelPanel(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isHovered by interactionSource.collectIsHoveredAsState()
 
     val edge = color ?: Color(0xFFE6E6E6)
-    val fill = if (color == null) {
+    val baseFill = if (color == null) {
         if (tone == PanelTone.WHITE) Color.White else Color(0xFFFAFAFA)
     } else {
         if (tone == PanelTone.WHITE) Color.White else tintColor(color, 20)
     }
+    val fill = if (isHovered && onClick != null) Ink.copy(alpha = 0.04f).compositeOver(baseFill) else baseFill
     val shadow = if (color != null) tintColor(color, 45) else Color(0xFFD9D9D9)
 
     val press = onClick != null
@@ -541,11 +548,14 @@ fun PixelPanel(
             .then(if (raised) Modifier.padding(bottom = 4.dp) else Modifier)
             .then(
                 if (onClick != null) {
-                    Modifier.clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = onClick
-                    )
+                    Modifier
+                        .hoverable(interactionSource)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = onClick
+                        )
                 } else Modifier
             )
     ) {

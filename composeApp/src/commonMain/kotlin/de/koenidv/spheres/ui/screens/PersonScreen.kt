@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -62,6 +63,10 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.ui.components.LocalBottomChromeInset
+import de.koenidv.spheres.ui.components.backIcon
+import de.koenidv.spheres.ui.components.hoverHighlight
+import de.koenidv.spheres.ui.components.LocalDetailPaneDepth
 import de.koenidv.spheres.data.LogMode
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
@@ -186,6 +191,7 @@ fun PersonScreen(
     modifier: Modifier = Modifier
 ) {
     val state by SpheresStore.state.collectAsState()
+    val inDetailPane = LocalDetailPaneDepth.current > 0
     val person = state.people.firstOrNull { it.id == id }
     val dataReady = state.dataReady
     val spheres = state.spheres
@@ -274,7 +280,7 @@ fun PersonScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
-                .padding(bottom = 96.dp)
+                .padding(bottom = LocalBottomChromeInset.current)
         ) {
             ArcHeader(accent = accentColor) {
                 Row(
@@ -283,7 +289,7 @@ fun PersonScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     PixelIconButton(
-                        icon = IconName.BACK,
+                        icon = backIcon(),
                         onClick = { onNavigate("..") }
                     )
                     PixelIconButton(
@@ -310,6 +316,7 @@ fun PersonScreen(
                         modifier = Modifier
                             .background(Color.White)
                             .border(2.dp, accentColor)
+                            .hoverHighlight()
                             .clickable {
                                 SpheresStore.openSheet(SheetState.AvatarEdit(person.id))
                             }
@@ -383,6 +390,7 @@ fun PersonScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .offset(y = (-36).dp)
+                            .hoverHighlight()
                             .clickable {
                                 renameDraft = TextFieldValue(person.name, TextRange(person.name.length))
                                 isRenaming = true
@@ -481,18 +489,13 @@ fun PersonScreen(
                                 color = Ink,
                                 textDecoration = TextDecoration.Underline
                             ),
-                            modifier = Modifier.clickable { onNavigate("/events/${e.id}") }
+                            modifier = Modifier.hoverHighlight().clickable { onNavigate("/events/${e.id}") }
                         )
                     }
                 }
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+            val bodyTop: @Composable ColumnScope.() -> Unit = {
                 Column {
                     val lastInteractionTs = due?.last ?: entries.firstOrNull { !it.kind.isNote }?.at
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -681,8 +684,8 @@ fun PersonScreen(
                 GiftsCard(person = person)
                 NotesCard(person = person)
                 DetailsCard(person = person)
-                TimelineCard(entries = entries)
-
+            }
+            val bodyBottom: @Composable ColumnScope.() -> Unit = {
                 val pickLinkContact = rememberContactPickerLauncher(allowMultiple = false) { picked ->
                     val contact = picked.firstOrNull() ?: return@rememberContactPickerLauncher
                     val cid = contact.contactId
@@ -757,10 +760,38 @@ fun PersonScreen(
                                 deleteConfirm = true
                             } else {
                                 SpheresStore.deletePerson(person.id)
-                                onNavigate("/")
+                                onNavigate(if (inDetailPane) ".." else "/")
                             }
                         }
                     )
+                }
+            }
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                if (maxWidth >= 760.dp) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            bodyTop()
+                            bodyBottom()
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            TimelineCard(entries = entries)
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        bodyTop()
+                        TimelineCard(entries = entries)
+                        bodyBottom()
+                    }
                 }
             }
         }
@@ -892,6 +923,7 @@ private fun CityLine(person: Person) {
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier
             .widthIn(max = 220.dp)
+            .hoverHighlight()
             .clickable { SpheresStore.openSheet(SheetState.LocationEdit(person.id)) }
     ) {
         PixelIcon(name = IconName.PIN, size = 16.dp, tint = if (label != null) Ink else Muted)

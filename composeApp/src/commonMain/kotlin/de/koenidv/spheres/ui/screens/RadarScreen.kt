@@ -44,6 +44,7 @@ import de.koenidv.spheres.domain.intervalInfo
 import de.koenidv.spheres.domain.relationshipQuality
 import de.koenidv.spheres.ui.components.DueStatus
 import de.koenidv.spheres.ui.components.IconName
+import de.koenidv.spheres.ui.components.LocalWindowClass
 import de.koenidv.spheres.ui.components.PixelIconButton
 import de.koenidv.spheres.ui.components.PersonMenu
 import de.koenidv.spheres.ui.components.PersonMenuTarget
@@ -154,23 +155,25 @@ fun RadarScreen(
             ScreenHeader(
                 title = "Connections",
                 subtitle = subtitle,
-                right = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        PixelIconButton(
-                            icon = IconName.SEARCH,
-                            onClick = { onNavigate("/people?search=1") },
-                            tint = Ink.copy(alpha = 0.4f)
-                        )
-                        PixelIconButton(
-                            icon = IconName.SETTINGS,
-                            onClick = { onNavigate("/settings") },
-                            tint = Ink.copy(alpha = 0.4f)
-                        )
+                right = if (LocalWindowClass.current.isCompact) {
+                    {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            PixelIconButton(
+                                icon = IconName.SEARCH,
+                                onClick = { onNavigate("/people?search=1") },
+                                tint = Ink.copy(alpha = 0.4f)
+                            )
+                            PixelIconButton(
+                                icon = IconName.SETTINGS,
+                                onClick = { onNavigate("/settings") },
+                                tint = Ink.copy(alpha = 0.4f)
+                            )
+                        }
                     }
-                }
+                } else null
             )
 
             if (spheres.isNotEmpty()) {

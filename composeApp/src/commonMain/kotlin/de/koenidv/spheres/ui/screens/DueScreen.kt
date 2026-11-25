@@ -1,5 +1,9 @@
 package de.koenidv.spheres.ui.screens
 
+import de.koenidv.spheres.ui.components.personContextMenu
+import de.koenidv.spheres.ui.components.hoverHighlight
+import de.koenidv.spheres.ui.components.PublishPersonOrder
+import de.koenidv.spheres.ui.components.LocalSelectedPersonId
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -40,6 +44,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.ui.components.LocalBottomChromeInset
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.DAY
@@ -202,6 +207,13 @@ fun DueScreen(
     val caughtUp = overdue.isEmpty() && soon.isEmpty() && suggestions.isEmpty() && birthdays.isEmpty() && followUps.isEmpty()
     val shownSuggestions = if (showAllSuggestions) suggestions else suggestions.take(4)
 
+    PublishPersonOrder(
+        remember(followUps, overdue, soon, birthdays, shownSuggestions) {
+            (followUps.map { it.id } + overdue.map { it.person.id } + soon.map { it.person.id } +
+                birthdays.map { it.person.id } + shownSuggestions.map { it.person.id }).distinct()
+        }
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -213,7 +225,7 @@ fun DueScreen(
                 .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(bottom = 96.dp)
+                .padding(bottom = LocalBottomChromeInset.current)
         ) {
             ScreenHeader(
                 title = "Check-ins",
@@ -693,6 +705,11 @@ private fun DueRow(
                 Row(
                     modifier = Modifier
                         .weight(1f)
+                        .then(
+                            if (LocalSelectedPersonId.current == person.id) Modifier.background(Ink.copy(alpha = 0.06f)) else Modifier
+                        )
+                        .personContextMenu(person.id)
+                        .hoverHighlight()
                         .clickable(onClick = onOpen),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -772,6 +789,8 @@ private fun SuggestionRow(
                     Row(
                         modifier = Modifier
                             .weight(1f)
+                            .personContextMenu(person.id)
+                            .hoverHighlight()
                             .clickable(onClick = onOpen),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {

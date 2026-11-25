@@ -1,5 +1,9 @@
 package de.koenidv.spheres.ui.screens
 
+import de.koenidv.spheres.ui.components.personContextMenu
+import de.koenidv.spheres.ui.components.hoverHighlight
+import androidx.compose.foundation.border
+import de.koenidv.spheres.ui.components.LocalSelectedPersonId
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -44,6 +48,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.ui.components.LocalBottomChromeInset
+import de.koenidv.spheres.ui.components.backIcon
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.DueStatus
@@ -173,7 +179,7 @@ fun SphereScreen(
                 .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(bottom = 96.dp)
+                .padding(bottom = LocalBottomChromeInset.current)
         ) {
             Row(
                 modifier = Modifier
@@ -183,7 +189,7 @@ fun SphereScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 PixelIconButton(
-                    icon = IconName.BACK,
+                    icon = backIcon(),
                     onClick = { onNavigate("..") }
                 )
                 Box(
@@ -325,6 +331,9 @@ fun SphereScreen(
                                     .fillMaxWidth()
                                     .clip(PxClipShape)
                                     .background(CardBg)
+                                    .hoverHighlight()
+                                    .then(if (LocalSelectedPersonId.current == p.id) Modifier.border(2.dp, Ink, PxClipShape) else Modifier)
+                                    .personContextMenu(p.id)
                                     .clickable { onNavigate("/people/${p.id}") }
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,

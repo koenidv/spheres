@@ -6,6 +6,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -30,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -305,6 +307,7 @@ fun MapPin(
     people: List<Person>,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    open: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     if (people.isEmpty()) return
@@ -315,7 +318,12 @@ fun MapPin(
     val bodyW = if (single) 48.dp else avatarSize + overlap * (shown.size - 1) + 12.dp
     val bodyH = if (single) 48.dp else 42.dp
     val ring = if (single) parseHexColor(intervalInfo(people[0].intervalDays).color) else Ink
-    val lift by animateDpAsState(if (selected) 6.dp else 0.dp, spring(stiffness = 600f))
+    val lift by animateDpAsState(if (selected || open) 6.dp else 0.dp, spring(stiffness = 600f))
+    val openRing by animateFloatAsState(
+        targetValue = if (open) 1f else 0f,
+        animationSpec = spring(stiffness = 520f, dampingRatio = 0.7f),
+        label = "PinOpenRing"
+    )
 
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -345,7 +353,11 @@ fun MapPin(
                 ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box {
+            Box(
+                modifier = Modifier.drawBehind {
+                    if (openRing > 0.01f) drawPinOpenRing(openRing, leaveBadgeRoom = !single)
+                }
+            ) {
                 Box(
                     modifier = Modifier
                         .offset(y = 3.dp)
@@ -425,6 +437,26 @@ fun MapPin(
             }
         }
     }
+}
+
+// Same stepped ring as the radar's selection, with gaps where the count badge and the pin tip sit
+private fun DrawScope.drawPinOpenRing(progress: Float, leaveBadgeRoom: Boolean) {
+    val stroke = 2.dp.toPx()
+    val gap = (3f + 5f * (1f - progress)).dp.toPx()
+    val l = -(gap + stroke)
+    val t = l
+    val r = size.width + gap + stroke
+    val b = size.height + gap + stroke
+    val ink = Ink.copy(alpha = progress.coerceIn(0f, 1f))
+    val topEnd = if (leaveBadgeRoom) size.width - 14.dp.toPx() else r - stroke
+    val rightStart = if (leaveBadgeRoom) 14.dp.toPx() else t + stroke
+    val tipGap = 10.dp.toPx()
+    val mid = size.width / 2f
+    drawRect(ink, Offset(l + stroke, t), Size(topEnd - (l + stroke), stroke))
+    drawRect(ink, Offset(l + stroke, b - stroke), Size(mid - tipGap - (l + stroke), stroke))
+    drawRect(ink, Offset(mid + tipGap, b - stroke), Size(r - stroke - (mid + tipGap), stroke))
+    drawRect(ink, Offset(l, t + stroke), Size(stroke, b - stroke - (t + stroke)))
+    drawRect(ink, Offset(r - stroke, rightStart), Size(stroke, b - stroke - rightStart))
 }
 
 /**

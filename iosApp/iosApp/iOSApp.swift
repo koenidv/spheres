@@ -46,5 +46,28 @@ struct iOSApp: App {
         WindowGroup {
             ContentView()
         }
+        .commands {
+            CommandGroup(after: .newItem) {
+                Button("New Connection") { AppShortcuts.shared.fire(id: "new") }
+                    .keyboardShortcut("n")
+                Button("Log Interaction") { AppShortcuts.shared.fire(id: "log") }
+                    .keyboardShortcut("l")
+            }
+            CommandMenu("Go") {
+                Button("Radar") { AppShortcuts.shared.fire(id: "radar") }
+                    .keyboardShortcut("1")
+                Button("Due") { AppShortcuts.shared.fire(id: "due") }
+                    .keyboardShortcut("2")
+                Button("Spheres") { AppShortcuts.shared.fire(id: "spheres") }
+                    .keyboardShortcut("3")
+                Button("Map") { AppShortcuts.shared.fire(id: "map") }
+                    .keyboardShortcut("4")
+                Divider()
+                Button("Search Connections") { AppShortcuts.shared.fire(id: "search") }
+                    .keyboardShortcut("f")
+                Button("Settings") { AppShortcuts.shared.fire(id: "settings") }
+                    .keyboardShortcut(",")
+            }
+        }
     }
 }

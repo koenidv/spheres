@@ -179,6 +179,8 @@ object AndroidPlatformContext {
     }
 }
 
+actual val isWebPlatform: Boolean = false
+
 actual fun haptic(durationMs: Int) {
     try {
         val context = AndroidPlatformContext.applicationContext

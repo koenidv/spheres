@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,7 +49,9 @@ import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -185,51 +188,101 @@ fun SignInScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.White)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 24.dp, end = 24.dp, top = 72.dp, bottom = 24.dp)
-            ) {
-                Text(
-                    text = "SPHERES",
-                    style = TextStyle(
-                        fontFamily = PixelFontFamily(),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 48.sp,
-                        lineHeight = 52.sp,
-                        letterSpacing = 3.84.sp,
-                        color = Ink
-                    )
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Stay close to the people who matter.",
-                    style = TextStyle(
-                        fontFamily = SansFontFamily(),
-                        fontSize = 18.sp,
-                        lineHeight = 28.sp,
-                        color = Ink
-                    ),
-                    modifier = Modifier.width(280.dp)
-                )
-            }
+    val actions: @Composable () -> Unit = {
+                val appleLogo = remember { if (isAppleSignInSupported()) appleLogoBitmap() else null }
+                if (isAppleSignInSupported()) {
+                    SignInProviderButton(
+                        label = "Sign in with Apple",
+                        enabled = !busy,
+                        loading = busyProvider == SignInProvider.APPLE,
+                        onClick = { runSignIn(SignInProvider.APPLE) { SpheresStore.signInWithApple() } }
+                    ) {
+                        if (appleLogo != null) {
+                            Image(bitmap = appleLogo, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                SignInProviderButton(
+                    label = "Sign in with Google",
+                    enabled = !busy,
+                    loading = busyProvider == SignInProvider.GOOGLE,
+                    onClick = { runSignIn(SignInProvider.GOOGLE) { SpheresStore.signIn() } }
+                ) {
+                    Image(imageVector = GoogleLogo, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
 
-            BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .clipToBounds()
-            ) {
+                if (error != null) {
+                    Text(
+                        text = error!!,
+                        style = TextStyle(
+                            fontFamily = SansFontFamily(),
+                            fontSize = 14.sp,
+                            color = DangerText
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                    )
+                }
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxSize().background(Color.White)) {
+        if (maxWidth >= 840.dp) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier.weight(0.44f).fillMaxSize().padding(horizontal = 72.dp),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "SPHERES",
+                        style = TextStyle(fontFamily = PixelFontFamily(), fontWeight = FontWeight.Bold, fontSize = 80.sp, lineHeight = 84.sp, letterSpacing = 6.sp, color = Ink)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Stay close to the people who matter.",
+                        style = TextStyle(fontFamily = SansFontFamily(), fontSize = 24.sp, lineHeight = 34.sp, color = Ink),
+                        modifier = Modifier.widthIn(max = 420.dp)
+                    )
+                    Spacer(modifier = Modifier.height(40.dp))
+                    Column(modifier = Modifier.widthIn(max = 380.dp)) { actions() }
+                }
+                Box(
+                    modifier = Modifier.weight(0.56f).fillMaxSize()
+                        .background(tintColor(parseHexColor(INTERVALS[2].color), 20))
+                ) {
+                    SignInArcs(Modifier.fillMaxSize(), 64.dp, 16.sp, density)
+                }
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                Column(modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 72.dp, bottom = 24.dp)) {
+                    Text(
+                        text = "SPHERES",
+                        style = TextStyle(fontFamily = PixelFontFamily(), fontWeight = FontWeight.Bold, fontSize = 48.sp, lineHeight = 52.sp, letterSpacing = 3.84.sp, color = Ink)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Stay close to the people who matter.",
+                        style = TextStyle(fontFamily = SansFontFamily(), fontSize = 18.sp, lineHeight = 28.sp, color = Ink),
+                        modifier = Modifier.width(280.dp)
+                    )
+                }
+                SignInArcs(Modifier.fillMaxWidth().weight(1f), 44.dp, 13.sp, density)
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(tintColor(parseHexColor(INTERVALS[2].color), 20))
+                        .padding(horizontal = 24.dp, vertical = 20.dp)
+                        .navigationBarsPadding()
+                ) { actions() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignInArcs(modifier: Modifier, avatarSize: Dp, labelSize: TextUnit, density: Float) {
+    BoxWithConstraints(modifier = modifier.clipToBounds()) {
                 val wDp = maxWidth.value
                 val hDp = maxHeight.value
 
@@ -284,67 +337,20 @@ fun SignInScreen(modifier: Modifier = Modifier) {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.padding(horizontal = 4.dp)
                         ) {
-                            PixelAvatar(name = p.name, colorHex = colorHex, size = 44.dp)
+                            PixelAvatar(name = p.name, colorHex = colorHex, size = avatarSize)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = p.name,
                                 style = TextStyle(
                                     fontFamily = SansFontFamily(),
                                     fontWeight = FontWeight.Medium,
-                                    fontSize = 13.sp,
+                                    fontSize = labelSize,
                                     color = Ink
                                 )
                             )
                         }
                     }
                 }
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(tintColor(parseHexColor(INTERVALS[2].color), 20))
-                    .padding(horizontal = 24.dp, vertical = 20.dp)
-                    .navigationBarsPadding()
-            ) {
-                val appleLogo = remember { if (isAppleSignInSupported()) appleLogoBitmap() else null }
-                if (isAppleSignInSupported()) {
-                    SignInProviderButton(
-                        label = "Sign in with Apple",
-                        enabled = !busy,
-                        loading = busyProvider == SignInProvider.APPLE,
-                        onClick = { runSignIn(SignInProvider.APPLE) { SpheresStore.signInWithApple() } }
-                    ) {
-                        if (appleLogo != null) {
-                            Image(bitmap = appleLogo, contentDescription = null, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-                SignInProviderButton(
-                    label = "Sign in with Google",
-                    enabled = !busy,
-                    loading = busyProvider == SignInProvider.GOOGLE,
-                    onClick = { runSignIn(SignInProvider.GOOGLE) { SpheresStore.signIn() } }
-                ) {
-                    Image(imageVector = GoogleLogo, contentDescription = null, modifier = Modifier.size(18.dp))
-                }
-
-                if (error != null) {
-                    Text(
-                        text = error!!,
-                        style = TextStyle(
-                            fontFamily = SansFontFamily(),
-                            fontSize = 14.sp,
-                            color = DangerText
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp)
-                    )
-                }
-            }
-        }
     }
 }
 

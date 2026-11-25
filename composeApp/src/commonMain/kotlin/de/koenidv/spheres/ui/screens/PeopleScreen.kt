@@ -1,5 +1,10 @@
 package de.koenidv.spheres.ui.screens
 
+import de.koenidv.spheres.ui.components.personContextMenu
+import de.koenidv.spheres.ui.components.hoverHighlight
+import de.koenidv.spheres.ui.components.PublishPersonOrder
+import androidx.compose.foundation.border
+import de.koenidv.spheres.ui.components.LocalSelectedPersonId
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -42,6 +47,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.ui.components.LocalBottomChromeInset
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.DueStatus
@@ -154,6 +160,8 @@ fun PeopleScreen(
             .sortedBy { it.name.lowercase() }
     }
 
+    PublishPersonOrder(remember(filteredPeople) { filteredPeople.map { it.id } })
+
     val sphereLabel = when (sphereFilter) {
         null -> "Sphere"
         FILTER_NONE -> "No sphere"
@@ -211,7 +219,7 @@ fun PeopleScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 top = statusInsets.calculateTopPadding() + 12.dp,
-                bottom = navInsets.calculateBottomPadding() + 112.dp,
+                bottom = navInsets.calculateBottomPadding() + LocalBottomChromeInset.current + 16.dp,
                 start = statusInsets.calculateStartPadding(layoutDir) + 16.dp,
                 end = statusInsets.calculateEndPadding(layoutDir) + 16.dp
             ),
@@ -396,6 +404,9 @@ fun PeopleScreen(
                             .fillMaxWidth()
                             .clip(PxClipShape)
                             .background(CardBg)
+                            .hoverHighlight()
+                            .then(if (LocalSelectedPersonId.current == p.id) Modifier.border(2.dp, Ink, PxClipShape) else Modifier)
+                            .personContextMenu(p.id)
                             .clickable { onNavigate("/people/${p.id}") }
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,

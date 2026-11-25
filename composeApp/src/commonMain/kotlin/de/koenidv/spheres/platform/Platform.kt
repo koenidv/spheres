@@ -71,6 +71,9 @@ expect object PlatformBilling {
     suspend fun restorePurchases(productId: String): RestoreOutcome
 }
 
+/** True in the browser, where plain single-key shortcuts replace the ⌘ combinations. */
+expect val isWebPlatform: Boolean
+
 expect fun haptic(durationMs: Int = 8)
 expect fun currentTimeMillis(): Long
 expect fun randomUuid(): String

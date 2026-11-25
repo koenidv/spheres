@@ -4,6 +4,7 @@ import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -77,6 +78,13 @@ kotlin {
         }
     }
     
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs {
+        outputModuleName = "spheres"
+        browser { commonWebpackConfig { outputFileName = "spheres.js" } }
+        binaries.executable()
+    }
+
     sourceSets {
         commonMain {
             kotlin.srcDir(generateBuildFlags)
@@ -109,6 +117,11 @@ kotlin {
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
+        }
+        val wasmJsMain by getting {
+            dependencies {
+                implementation(libs.ktor.client.js)
+            }
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

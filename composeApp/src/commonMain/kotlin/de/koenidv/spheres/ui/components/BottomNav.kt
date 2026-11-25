@@ -142,7 +142,7 @@ fun BottomNav(
 }
 
 @Composable
-private fun NavTabItem(
+internal fun NavTabItem(
     tab: BottomNavTab,
     selected: Boolean,
     onClick: () -> Unit,
@@ -153,6 +153,7 @@ private fun NavTabItem(
 
     Column(
         modifier = modifier
+            .hoverHighlight()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

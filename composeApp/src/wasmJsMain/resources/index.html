@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spheres</title>
+    <meta name="description" content="Stay close to the people who matter.">
+    <meta name="theme-color" content="#f5effc">
+    <link rel="icon" href="favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="manifest" href="site.webmanifest">
+    <style>
+        html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
+        #splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; background: #fff; z-index: 10; }
+        #splash i { width: 14px; height: 14px; display: block; animation: b 0.9s ease-in-out infinite; }
+        #splash i:nth-child(1) { background: #ff5fa2; }
+        #splash i:nth-child(2) { background: #ff7a59; animation-delay: .15s; }
+        #splash i:nth-child(3) { background: #8b5cf6; animation-delay: .3s; }
+        @keyframes b { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+        #unsupported { display: none; position: fixed; inset: 0; align-items: center; justify-content: center; background: #fff; font: 16px sans-serif; z-index: 20; text-align: center; padding: 24px; }
+    </style>
+</head>
+<body>
+<div id="splash"><i></i><i></i><i></i></div>
+<div id="unsupported">Your browser is too old for Spheres. Please use a current Chrome, Firefox, Edge or Safari.</div>
+<script>
+    var ok = typeof WebAssembly === "object" && typeof WebAssembly.Tag === "function" ||
+             (typeof WebAssembly === "object" && typeof WebAssembly.validate === "function" &&
+              WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,95,1,120,0])));
+    if (!ok) {
+        document.getElementById("splash").remove();
+        document.getElementById("unsupported").style.display = "flex";
+    } else {
+        var s = document.createElement("script");
+        s.src = "spheres.js";
+        document.body.appendChild(s);
+    }
+</script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</body>
+</html>

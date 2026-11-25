@@ -48,6 +48,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalDensity
+import de.koenidv.spheres.ui.components.LocalBottomChromeInset
+import de.koenidv.spheres.ui.components.LocalSelectedPersonId
+import de.koenidv.spheres.ui.components.LocalWindowClass
+import androidx.compose.foundation.layout.widthIn
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
 import de.koenidv.spheres.domain.MapGeo
@@ -111,6 +115,15 @@ fun MapScreen(
     var selectedUserLocation by remember { mutableStateOf(false) }
     var centerOnNextLocation by remember { mutableStateOf(false) }
     val locationSupported = remember { PlatformLocation.isSupported() }
+    val compact = LocalWindowClass.current.isCompact
+    val paneMode = LocalWindowClass.current.hasSidebar
+    val openId = if (paneMode) LocalSelectedPersonId.current else null
+
+    // The overlay only lives while the pane shows someone from that location
+    LaunchedEffect(openId) {
+        val sel = selected
+        if (paneMode && sel != null && (openId == null || openId !in sel.ids)) selected = null
+    }
 
     // Location is only refreshed when the user opens the map tab (and has opted in).
     LaunchedEffect(Unit) {
@@ -200,8 +213,16 @@ fun MapScreen(
                 return
             }
         }
-        selected = if (selected?.key == c.key) null else c
         selectedUserLocation = false
+        if (paneMode) {
+            // Opens in the detail pane; the pane shrinks the map, so centring on the pin now lands it in the final area
+            val toggledOff = c.size > 1 && selected?.key == c.key
+            selected = if (c.size > 1 && !toggledOff) c else null
+            camera.animateTo(scope, c.u, c.v, camera.scale)
+            if (!toggledOff) onNavigate("/people/${c.ids.first()}")
+            return
+        }
+        selected = if (selected?.key == c.key) null else c
     }
 
     val subtitle = when {
@@ -218,26 +239,29 @@ fun MapScreen(
             .fillMaxSize()
             .background(Color.White)
     ) {
+        val onSubtitleClick = if (missingCount > 0) {
+            { SpheresStore.openSheet(SheetState.MissingLocations) }
+        } else null
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+                .then(if (compact) Modifier.statusBarsPadding().navigationBarsPadding() else Modifier)
         ) {
-            ScreenHeader(
-                title = "Map",
-                subtitle = subtitle,
-                onSubtitleClick = if (missingCount > 0) {
-                    { SpheresStore.openSheet(SheetState.MissingLocations) }
-                } else null
-            )
+            if (compact) {
+                ScreenHeader(title = "Map", subtitle = subtitle, onSubtitleClick = onSubtitleClick)
+            }
 
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 92.dp)
-                    .clip(SteppedPolygonShape(steps = 3))
+                    .then(
+                        if (compact) {
+                            Modifier
+                                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = maxOf(LocalBottomChromeInset.current - 4.dp, 16.dp))
+                                .clip(SteppedPolygonShape(steps = 3))
+                        } else Modifier
+                    )
                     .background(MapWater)
             ) {
                 PixelTerrain(
@@ -303,6 +327,7 @@ fun MapScreen(
                             MapPin(
                                 people = members,
                                 selected = selected?.key == c.key,
+                                open = openId != null && openId in c.ids,
                                 onClick = { onClusterTap(c) }
                             )
                         }
@@ -312,7 +337,8 @@ fun MapScreen(
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(12.dp),
+                        .then(if (compact) Modifier else Modifier.statusBarsPadding())
+                        .padding(if (compact) 12.dp else 14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MapControl(IconName.PLUS) {
@@ -371,10 +397,26 @@ fun MapScreen(
                     }
                 }
 
+                if (!compact) {
+                    PixelShell(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .statusBarsPadding()
+                            .padding(14.dp)
+                            .widthIn(max = 440.dp),
+                        fill = Color.White,
+                        shadow = Color(0xFFB4BCE0),
+                        lift = 3.dp
+                    ) {
+                        ScreenHeader(title = "Map", subtitle = subtitle, onSubtitleClick = onSubtitleClick)
+                    }
+                }
+
                 SelectionOverlay(
                     selected = selected,
                     byId = byId,
-                    onOpen = { id -> onNavigate("/people/$id") }
+                    openId = openId,
+                    onOpen = { id -> if (id != openId) onNavigate("/people/$id") }
                 )
 
                 UserLocationOverlay(
@@ -390,7 +432,7 @@ fun MapScreen(
                         hasPeople = people.isNotEmpty(),
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(10.dp)
+                            .mapOverlayFrame()
                     )
                 }
             }
@@ -419,9 +461,16 @@ private fun MapControl(
     }
 }
 
+// Bottom panels float with even margins and a capped width on larger screens
+@Composable
+private fun Modifier.mapOverlayFrame(): Modifier =
+    if (LocalWindowClass.current.isCompact) padding(10.dp)
+    else navigationBarsPadding().padding(14.dp).widthIn(max = 480.dp)
+
 @Composable
 private fun SelectionCard(
     people: List<de.koenidv.spheres.domain.Person>,
+    openId: String?,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -436,9 +485,11 @@ private fun SelectionCard(
             .verticalScroll(rememberScrollState())
     ) {
         for (p in people) {
+            val isOpen = p.id == openId
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(if (isOpen) Modifier.background(Color(0xFFEEF3FF)) else Modifier)
                     .clickable { onOpen(p.id) }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -463,7 +514,7 @@ private fun SelectionCard(
                         )
                     }
                 }
-                PixelIcon(name = IconName.CHEVRON_RIGHT, size = 18.dp, tint = Ink.copy(alpha = 0.4f))
+                PixelIcon(name = IconName.CHEVRON_RIGHT, size = 18.dp, tint = Ink.copy(alpha = if (isOpen) 1f else 0.4f))
             }
         }
     }
@@ -504,6 +555,7 @@ private fun EmptyMapCard(hasPeople: Boolean, modifier: Modifier = Modifier) {
 private fun SelectionOverlay(
     selected: MapCluster?,
     byId: Map<String, de.koenidv.spheres.domain.Person>,
+    openId: String?,
     onOpen: (String) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
@@ -518,8 +570,9 @@ private fun SelectionOverlay(
             if (sel != null) {
                 SelectionCard(
                     people = sel.ids.mapNotNull { byId[it] },
+                    openId = openId,
                     onOpen = onOpen,
-                    modifier = Modifier.padding(10.dp)
+                    modifier = Modifier.mapOverlayFrame()
                 )
             }
         }
@@ -539,7 +592,7 @@ private fun UserLocationOverlay(
         ) {
             Row(
                 modifier = Modifier
-                    .padding(10.dp)
+                    .mapOverlayFrame()
                     .fillMaxWidth()
                     .clip(SteppedPolygonShape(steps = 2))
                     .background(Color.White)

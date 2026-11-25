@@ -4,9 +4,13 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import de.koenidv.spheres.ui.components.LocalBottomChromeInset
 import de.koenidv.spheres.ui.components.SteppedPolygonShape
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.window.Dialog
+import de.koenidv.spheres.ShortcutHelp
+import de.koenidv.spheres.platform.isWebPlatform
+import de.koenidv.spheres.ui.components.LocalWindowClass
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -207,15 +211,17 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(bottom = 96.dp)
+                .padding(bottom = LocalBottomChromeInset.current)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                PixelIconButton(icon = IconName.BACK, onClick = { onNavigate("..") })
+            if (LocalWindowClass.current.isCompact) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PixelIconButton(icon = IconName.BACK, onClick = { onNavigate("..") })
+                }
             }
             ScreenHeader(title = "Settings")
 
@@ -621,6 +627,17 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+
+                if (isWebPlatform) {
+                    PixelButton(
+                        text = "Keyboard shortcuts",
+                        variant = ButtonVariant.SECONDARY,
+                        size = ButtonSize.MD,
+                        fullWidth = true,
+                        modifier = Modifier.padding(top = 16.dp),
+                        onClick = { ShortcutHelp.open.value = true }
+                    )
                 }
 
                 Column(

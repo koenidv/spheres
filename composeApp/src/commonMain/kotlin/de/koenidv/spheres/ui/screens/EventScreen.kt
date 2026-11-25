@@ -48,6 +48,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.koenidv.spheres.ui.components.LocalBottomChromeInset
+import de.koenidv.spheres.ui.components.backIcon
 import de.koenidv.spheres.data.PaywallReason
 import de.koenidv.spheres.data.SheetState
 import de.koenidv.spheres.data.SpheresStore
@@ -198,7 +200,7 @@ fun EventScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 PixelIconButton(
-                    icon = IconName.BACK,
+                    icon = backIcon(),
                     onClick = { onNavigate("..") }
                 )
                 Column(modifier = Modifier.weight(1f)) {
@@ -618,7 +620,7 @@ fun EventScreen(
                             onOpen = { onNavigate("/people/${person.id}") }
                         )
                     }
-                    Spacer(modifier = Modifier.navigationBarsPadding().height(96.dp))
+                    Spacer(modifier = Modifier.navigationBarsPadding().height(LocalBottomChromeInset.current))
                 }
             }
         }
